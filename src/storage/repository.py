@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from src.domain.enums import LeadClass, LeadStatus
 from src.domain.models import CrawlRun, Feedback, Lead, LeadAnalysis, LeadSourceRef, ScoreItem, ScoreResult
 from src.domain.status import ensure_transition
-from src.storage.orm import CrawlRunRow, FeedbackRow, LeadRow, LeadScoreDetailRow, LeadSourceRow
+from src.sources.email.seen_store import ProcessedMessage
+from src.storage.orm import CrawlRunRow, FeedbackRow, LeadRow, LeadScoreDetailRow, LeadSourceRow, ProcessedEmailRow
 
 _LEAD_COLUMN_FIELDS = frozenset(Lead.model_fields) - {"id", "score_breakdown", "analysis"}
 _CRAWL_RUN_FIELDS = frozenset(CrawlRun.model_fields) - {"id"}
@@ -219,3 +220,42 @@ class FeedbackRepository:
     def list_for_lead(self, lead_id: int) -> list[Feedback]:
         rows = self._session.scalars(select(FeedbackRow).where(FeedbackRow.lead_id == lead_id).order_by(FeedbackRow.id))
         return [Feedback.model_validate(r, from_attributes=True) for r in rows]
+
+
+class ProcessedEmailStore:
+    """SQLite-Implementierung von ``SeenMessageStore`` für den EmailSourceConnector."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def is_seen(self, key: str) -> bool:
+        return self._session.get(ProcessedEmailRow, key) is not None
+
+    def mark_seen(self, messages: Iterable[ProcessedMessage], processed_at: datetime) -> None:
+        for message in messages:
+            if self._session.get(ProcessedEmailRow, message.key) is None:
+                self._session.add(
+                    ProcessedEmailRow(
+                        message_key=message.key,
+                        status=message.status,
+                        source=message.source,
+                        subject=message.subject,
+                        received_at=message.received_at,
+                        item_count=message.item_count,
+                        processed_at=processed_at,
+                    )
+                )
+        self._session.flush()
+
+    def get(self, key: str) -> ProcessedMessage | None:
+        row = self._session.get(ProcessedEmailRow, key)
+        if row is None:
+            return None
+        return ProcessedMessage(
+            key=row.message_key,
+            status=row.status,  # type: ignore[arg-type]
+            source=row.source,
+            subject=row.subject,
+            received_at=row.received_at,
+            item_count=row.item_count,
+        )

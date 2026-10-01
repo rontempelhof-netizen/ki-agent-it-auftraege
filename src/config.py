@@ -10,10 +10,11 @@ Priorität (höchste zuerst):
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -126,6 +127,95 @@ class ScoringSettings(BaseModel):
     """Anteil der Maximalpunkte, wenn eine Information unbekannt ist (None)."""
 
 
+def _compile_ignorecase(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        return re.compile(value, re.IGNORECASE)
+    except re.error as exc:
+        raise ValueError(f"Ungültiger regulärer Ausdruck {value!r}: {exc}") from exc
+
+
+Regex = Annotated[re.Pattern[str], BeforeValidator(_compile_ignorecase)]
+"""Regulärer Ausdruck aus der Konfiguration, immer case-insensitiv kompiliert."""
+
+LinkLayout = Literal["link_start", "link_end"]
+
+
+class EmailSourceProfile(BaseModel):
+    """Parserprofil für die Benachrichtigungsmails eines Portals.
+
+    Layout ``link_start``: Ein Projektblock beginnt mit dem (Titel-)Link.
+    Layout ``link_end``: Ein Projektblock endet mit dem Projektlink.
+    """
+
+    name: str = Field(min_length=1)
+    sender_patterns: list[Regex] = Field(min_length=1)
+    subject_patterns: list[Regex] = []
+    project_url_patterns: list[Regex] = Field(min_length=1)
+    project_id_pattern: Regex | None = None
+    html_layout: LinkLayout = "link_start"
+    text_layout: LinkLayout = "link_start"
+    content_start_markers: list[Regex] = []
+    footer_markers: list[Regex] = []
+    strip_url_query: bool = True
+
+
+def _default_email_profiles() -> list[EmailSourceProfile]:
+    return [
+        EmailSourceProfile(
+            name="freelancermap",
+            sender_patterns=[r"@(mail\.)?freelancermap\.(de|com|at|ch)$"],
+            project_url_patterns=[r"^https?://(www\.)?freelancermap\.(de|com|at|ch)/projekt/[^/?#]+"],
+            project_id_pattern=r"-(\d+)(?:[/?#]|$)",
+            html_layout="link_start",
+            text_layout="link_start",
+            footer_markers=[r"Sie erhalten diese E-Mail"],
+        ),
+        EmailSourceProfile(
+            name="freelance.de",
+            sender_patterns=[r"@(mail\.)?freelance\.de$"],
+            project_url_patterns=[r"^https?://(www\.)?freelance\.de/projekte/projekt-\d+"],
+            project_id_pattern=r"projekt-(\d+)",
+            html_layout="link_start",
+            text_layout="link_end",
+            content_start_markers=[r"Projekte? gefunden[^\n]*\n"],
+            footer_markers=[r"Projektalarm verwalten"],
+        ),
+    ]
+
+
+class EmailSourceSettings(BaseModel):
+    enabled: bool = True
+    mailbox_dir: Path = Path("data/inbox")
+    """Offline-Postfach: Verzeichnis mit ``.eml``-Dateien."""
+    unknown_sender_policy: Literal["skip", "generic"] = "skip"
+    """``skip``: unbekannte Absender überspringen; ``generic``: ganze Mail als ein Eintrag."""
+    unknown_source_name: str = "email_unknown"
+    generic_link_texts: list[str] = [
+        "projekt ansehen",
+        "zum projekt",
+        "details",
+        "mehr erfahren",
+        "mehr",
+        "jetzt bewerben",
+        "view project",
+    ]
+    """Linktexte, die nicht als Projekttitel taugen (case-insensitiv)."""
+    profiles: list[EmailSourceProfile] = Field(default_factory=_default_email_profiles)
+
+    @model_validator(mode="after")
+    def _unique_profile_names(self) -> EmailSourceSettings:
+        names = [p.name for p in self.profiles]
+        if len(names) != len(set(names)):
+            raise ValueError("Profilnamen der E-Mail-Quellen müssen eindeutig sein")
+        return self
+
+
+class SourcesSettings(BaseModel):
+    email: EmailSourceSettings = EmailSourceSettings()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix=ENV_PREFIX,
@@ -142,6 +232,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = DatabaseSettings()
     logging: LoggingSettings = LoggingSettings()
     scoring: ScoringSettings = ScoringSettings()
+    sources: SourcesSettings = SourcesSettings()
 
     @classmethod
     def settings_customise_sources(

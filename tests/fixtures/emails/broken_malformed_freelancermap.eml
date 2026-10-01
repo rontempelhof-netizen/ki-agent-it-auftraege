@@ -1,0 +1,23 @@
+From: "freelancermap Projekt-Agent" <projektagent@freelancermap.de>
+To: ron.tempelhof@example.org
+Subject: 1 neues Projekt =?utf-8?q?f=C3=BCr_Ihren_Suchagenten?=
+Date: gestern irgendwann
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="==BOUNDARY-42=="
+
+--==BOUNDARY-42==
+Content-Type: text/plain; charset="x-unbekannt-8"
+Content-Transfer-Encoding: 8bit
+
+REST-API f\xfcr Ticketsystem anbinden (Zammad)
+https://www.freelancermap.de/projekt/rest-api-ticketsystem-zammad-2983001
+Remote | Start: sofort | Dauer: 4 Tage
+
+--==BOUNDARY-42==
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<html><body><p>Hallo,</p>
+<h2><a href="https://www.freelancermap.de/projekt/rest-api-ticketsystem-zammad-2983001?utm_source=projektagent">REST-API für Ticketsystem anbinden (Zammad)</a></h2>
+<p>Remote | Start: sofort | Dauer: 4 Tage</p>
+<p>Anbindung unseres Zammad-Ticketsystems an das interne CRM. Die Mail endet abrupt <b

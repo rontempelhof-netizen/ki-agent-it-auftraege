@@ -57,3 +57,37 @@ scoring:
       CHF: 1.05
       USD: 0.92
       GBP: 1.17
+
+# Quellen. Jeder Connector ist isoliert; Fehler einer Quelle stoppen andere nicht.
+sources:
+  email:
+    enabled: true
+    mailbox_dir: data/inbox          # Offline-Postfach mit .eml-Dateien (IMAP folgt später)
+    unknown_sender_policy: skip      # skip | generic (ganze Mail als ein Eintrag)
+    unknown_source_name: email_unknown
+    generic_link_texts:              # Linktexte, die nicht als Projekttitel taugen
+      - projekt ansehen
+      - zum projekt
+      - details
+      - mehr erfahren
+      - mehr
+      - jetzt bewerben
+      - view project
+    # Parserprofile; Muster sind reguläre Ausdrücke (case-insensitiv).
+    # Layout link_start: Block beginnt mit dem Projektlink; link_end: Block endet mit ihm.
+    profiles:
+      - name: freelancermap
+        sender_patterns: ['@(mail\.)?freelancermap\.(de|com|at|ch)$']
+        project_url_patterns: ['^https?://(www\.)?freelancermap\.(de|com|at|ch)/projekt/[^/?#]+']
+        project_id_pattern: '-(\d+)(?:[/?#]|$)'
+        html_layout: link_start
+        text_layout: link_start
+        footer_markers: ['Sie erhalten diese E-Mail']
+      - name: freelance.de
+        sender_patterns: ['@(mail\.)?freelance\.de$']
+        project_url_patterns: ['^https?://(www\.)?freelance\.de/projekte/projekt-\d+']
+        project_id_pattern: 'projekt-(\d+)'
+        html_layout: link_start
+        text_layout: link_end
+        content_start_markers: ['Projekte? gefunden[^\n]*\n']
+        footer_markers: ['Projektalarm verwalten']

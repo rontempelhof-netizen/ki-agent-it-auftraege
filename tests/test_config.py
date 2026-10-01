@@ -88,6 +88,27 @@ def test_repository_config_matches_scoring_defaults():
     assert load_settings(config_file=REPO_CONFIG, env_file=None).scoring == ScoringSettings()
 
 
+def test_repository_config_matches_source_defaults():
+    from src.config import SourcesSettings
+
+    assert load_settings(config_file=REPO_CONFIG, env_file=None).sources == SourcesSettings()
+
+
+def test_invalid_email_profile_regex_rejected(write_yaml):
+    path = write_yaml(
+        "sources:\n  email:\n    profiles:\n      - name: x\n        sender_patterns: ['([']\n"
+        "        project_url_patterns: ['x']\n"
+    )
+    with pytest.raises(ValidationError):
+        load_settings(config_file=path, env_file=None)
+
+
+def test_duplicate_email_profile_names_rejected(write_yaml):
+    profile = "      - name: x\n        sender_patterns: ['a']\n        project_url_patterns: ['b']\n"
+    with pytest.raises(ValidationError, match="eindeutig"):
+        load_settings(config_file=write_yaml("sources:\n  email:\n    profiles:\n" + profile * 2), env_file=None)
+
+
 def test_scoring_values_from_yaml_and_environment(write_yaml, monkeypatch):
     path = write_yaml("scoring:\n  thresholds:\n    a: 85\n  hard_fail:\n    available_certifications: [ISTQB]\n")
     monkeypatch.setenv("AGENT_SCORING__THRESHOLDS__B", "70")

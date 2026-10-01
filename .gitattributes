@@ -1,0 +1,2 @@
+# E-Mail-Fixtures byte-genau behalten (CRLF, 8bit, defekte Bytes sind Teil des Tests)
+*.eml -text

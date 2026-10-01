@@ -3,10 +3,11 @@
 Python-Agent, der passende kleine IT-Freelancer- und Beratungsaufträge findet, bewertet,
 in SQLite speichert und die besten neuen Leads per HTML-E-Mail meldet.
 
-> Stand: **Task 02 – Lead-Modell, Persistenz und Scoring.** Vorhanden sind Konfiguration,
+> Stand: **Task 03 – E-Mail als Source Connector.** Vorhanden sind Konfiguration,
 > Logging, CLI-Grundgerüst, Domänenmodelle, SQLite-Persistenz mit Repository-Schicht,
-> deterministische Hard-Fail-Regeln, Score Engine und A/B/C/REJECT-Klassifizierung.
-> Quellen, LLM-Analyse und Report folgen in den nächsten Tasks (`tasks/`).
+> deterministische Hard-Fail-Regeln, Score Engine, A/B/C/REJECT-Klassifizierung sowie der
+> offline testbare EmailSourceConnector. LLM-Analyse, Pipeline und Report folgen
+> in den nächsten Tasks (`tasks/`).
 
 ## Voraussetzungen
 
@@ -126,6 +127,35 @@ liefert nur Merkmale.
 - Gewichte, Schwellen, Grenzwerte und Wechselkurse sind in `config/settings.yaml`
   (Abschnitt `scoring`) konfigurierbar; die Gewichte müssen 100 ergeben.
 
+## Quellen: E-Mail-Connector
+
+Alle Connectoren implementieren `src.sources.base.SourceConnector` (`fetch()` →
+`FetchResult`, optional `acknowledge()`); `safe_fetch()` kapselt Fehler, damit eine
+defekte Quelle andere nicht stoppt. Connectoren liefern nur `RawSourceItem`s; sie
+normalisieren, bewerten und speichern nichts.
+
+Der `EmailSourceConnector` (`src/sources/email/`) verarbeitet Projektbenachrichtigungen:
+
+1. **Postfach** (`mailbox.py`): derzeit offline ein Verzeichnis mit `.eml`-Dateien
+   (`sources.email.mailbox_dir`, Standard `data/inbox`). Eine IMAP/Gmail-Anbindung
+   implementiert später dasselbe `Mailbox`-Protokoll.
+2. **Parsen** (`parser.py`): Absender, Betreff, Datum, Text- und HTML-Teil; defekte Header,
+   unbekannte Zeichensätze oder abgeschnittene Multipart-Mails werden als Warnung gemeldet.
+3. **Deduplizierung**: über Message-ID (sonst Inhalts-Hash) innerhalb eines Laufs und über
+   Läufe hinweg via `SeenMessageStore` (SQLite: Tabelle `processed_emails`). Nachrichten
+   gelten erst nach `acknowledge()` als verarbeitet, also nach erfolgreicher Weiterverarbeitung.
+4. **Quellzuordnung** über Parserprofile in `config/settings.yaml` (`sources.email.profiles`):
+   Absender-/Betreffmuster, Muster für Projekt-URLs und Projekt-ID, Layout
+   (`link_start`: Block beginnt mit dem Projektlink, `link_end`: Block endet mit ihm),
+   Marker für Inhaltsbeginn und Footer. Mitgeliefert: `freelancermap`, `freelance.de`.
+5. **Projektblöcke**: Jede erkannte Projekt-URL ergibt einen `RawSourceItem`; mehrere Links
+   auf dasselbe Projekt (Titel, Button, Tracking-Parameter) werden zusammengefasst.
+   Ohne erkennbare Projektlinks wird die ganze Mail als ein Eintrag übernommen.
+6. **Unbekannte Absender**: `unknown_sender_policy: skip` (Standard, mit Warnung) oder
+   `generic` (ganze Mail als Eintrag mit Quelle `email_unknown`).
+
+Mailinhalte sind untrusted input und werden unverändert als Daten weitergegeben.
+
 ## Logging
 
 Strukturiertes Logging nach `stderr`: im Format `json` eine JSON-Zeile pro Eintrag,
@@ -160,8 +190,10 @@ src/
   logging_setup.py strukturiertes Logging
   domain/          Pydantic-Modelle, Enums, Statusfluss
   scoring/         Hard Fails, Budget/Tagessatz, Score Engine, Klassifizierung
+  sources/         Connector-Vertrag; email/: Postfach, Parser, Projekt-Splitting, Connector
   storage/         Base/Namenskonvention, ORM-Tabellen, Engine/Sessions, Repositories
 tasks/             Umsetzungsschritte
 tests/             pytest-Tests
   fixtures/        realistische Leads mit handgerechneten Score-Erwartungen
+  fixtures/emails/ .eml-Fixtures (freelancermap, freelance.de, unbekannt, Duplikat, defekt)
 ```

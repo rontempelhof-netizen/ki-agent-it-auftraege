@@ -1,7 +1,8 @@
 """SQLAlchemy-Tabellen. Einziger Ort für Schemadefinitionen.
 
 Tabellen gemäß docs/requirements.md, Abschnitt 11:
-leads, lead_sources, lead_score_details, crawl_runs, feedback (+ app_meta).
+leads, lead_sources, lead_score_details, crawl_runs, feedback
+(+ technische Tabellen app_meta, processed_emails).
 """
 
 from __future__ import annotations
@@ -133,6 +134,20 @@ class CrawlRunRow(Base):
     items_rejected: Mapped[int] = mapped_column(Integer, default=0)
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ProcessedEmailRow(Base):
+    """Bereits eingelesene E-Mail-Nachrichten (Deduplizierung über Läufe hinweg)."""
+
+    __tablename__ = "processed_emails"
+
+    message_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    source: Mapped[str | None] = mapped_column(String(64))
+    subject: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    item_count: Mapped[int] = mapped_column(Integer, default=0)
+    processed_at: Mapped[datetime] = mapped_column(UTCDateTime)
 
 
 class FeedbackRow(Base):

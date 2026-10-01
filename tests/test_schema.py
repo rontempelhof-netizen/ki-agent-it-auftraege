@@ -9,7 +9,9 @@ from src.config import DatabaseSettings
 from src.storage.base import NAMING_CONVENTION, Base
 from src.storage.database import create_db_engine, init_db
 
-REQUIRED_TABLES = {"leads", "lead_sources", "lead_score_details", "crawl_runs", "feedback", "app_meta"}
+REQUIRED_TABLES = {
+    "leads", "lead_sources", "lead_score_details", "crawl_runs", "feedback", "app_meta", "processed_emails",
+}
 
 
 def test_all_tables_registered_on_single_metadata():

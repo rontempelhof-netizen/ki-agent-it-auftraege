@@ -21,7 +21,7 @@ from src.config import DatabaseSettings
 from src.storage.base import Base
 from src.storage.orm import AppMeta
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 logger = logging.getLogger(__name__)
 
