@@ -1,0 +1,59 @@
+# Basiskonfiguration des KI-Agenten.
+# Jeder Wert kann per Environment überschrieben werden:
+#   AGENT_<FELD> bzw. AGENT_<GRUPPE>__<FELD>, z. B. AGENT_DATABASE__URL
+# Secrets gehören NICHT in diese Datei, sondern in .env / Environment.
+
+app_name: ki-agent-it-auftraege
+environment: development
+
+database:
+  url: sqlite:///data/agent.db
+  echo: false
+
+logging:
+  level: INFO
+  format: json   # json | text
+
+# Deterministisches Scoring (docs/requirements.md, Abschnitt 8)
+scoring:
+  # Maximalpunkte je Kriterium, Summe muss 100 ergeben
+  weights:
+    scope: 20             # Scope klein/klar
+    deliverability: 15    # fachlich/technisch lieferbar
+    win_probability: 20   # Abschlusswahrscheinlichkeit/geringe Zugangshürden
+    budget_effort: 15     # Budget-/Aufwand-Verhältnis
+    direct_customer: 10   # direkter Kunde/KMU/kurze Entscheidung
+    remote_fit: 5         # Remote/geografischer Fit
+    urgency: 5            # Dringlichkeit
+    follow_up: 5          # Folgepotenzial
+    consulting_fit: 5     # strategischer Beratungsfit
+  # Untergrenzen (inklusive); darunter REJECT
+  thresholds:
+    a: 80
+    b: 65
+    c: 50
+  # Anteil der Maximalpunkte für unbekannte Merkmale
+  unknown_fraction: 0.4
+  hard_fail:
+    available_certifications: []   # z. B. ["ISTQB Foundation", "Scrum Master"]
+    has_security_clearance: false
+    onsite_allowed_regions: [dach]
+    max_person_days: 60
+    max_must_have_requirements: 15
+    min_day_rate_eur: 300
+  scope:
+    target_person_days_min: 1
+    target_person_days_max: 20
+    stretch_person_days_max: 40
+    must_have_soft_limit: 8        # darüber Abzug bei Abschlusswahrscheinlichkeit
+  budget:
+    target_day_rate_eur: 800
+    acceptable_day_rate_eur: 600
+    hours_per_day: 8
+    first_order_min_eur: 1000
+    first_order_max_eur: 15000
+    currency_rates_to_eur:         # statische Näherungswerte, bei Bedarf anpassen
+      EUR: 1.0
+      CHF: 1.05
+      USD: 0.92
+      GBP: 1.17

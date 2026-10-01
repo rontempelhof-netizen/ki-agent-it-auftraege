@@ -1,0 +1,1 @@
+"""Persistenzschicht (SQLite via SQLAlchemy)."""
