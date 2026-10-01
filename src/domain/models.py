@@ -242,6 +242,7 @@ class Lead(_BudgetMixin, DomainModel):
 
     status: LeadStatus = LeadStatus.NEW
     prompt_version: str | None = None
+    llm_model: str | None = None
     analysis: LeadAnalysis | None = None
 
     @model_validator(mode="after")
@@ -261,6 +262,7 @@ class Lead(_BudgetMixin, DomainModel):
         analysis: LeadAnalysis,
         score: ScoreResult,
         prompt_version: str | None = None,
+        llm_model: str | None = None,
     ) -> Lead:
         """Führt Quelldaten, Analyse und Score zusammen.
 
@@ -303,6 +305,7 @@ class Lead(_BudgetMixin, DomainModel):
             suggested_next_step=merged.suggested_next_step,
             suggested_outreach=merged.suggested_outreach,
             prompt_version=prompt_version,
+            llm_model=llm_model,
             analysis=merged,
         )
 

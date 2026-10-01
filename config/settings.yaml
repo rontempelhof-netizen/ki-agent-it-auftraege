@@ -91,3 +91,25 @@ sources:
         text_layout: link_end
         content_start_markers: ['Projekte? gefunden[^\n]*\n']
         footer_markers: ['Projektalarm verwalten']
+
+# LLM-Analyse. Das LLM extrahiert nur Merkmale; der Score wird deterministisch berechnet.
+# API-Key ausschließlich per Environment (ANTHROPIC_API_KEY), nie in dieser Datei.
+llm:
+  provider: anthropic          # anthropic | fake (offline, ohne API-Key)
+  model: claude-opus-5-5
+  effort: medium               # low | medium | high | xhigh | max
+  max_output_tokens: 16000
+  timeout_seconds: 120
+  max_attempts: 3              # Versuche je Lead, nur bei technischen/strukturellen Fehlern
+  retry_backoff_seconds: 2.0
+  max_input_chars: 20000       # längere Auftragstexte werden gekürzt (mit Hinweis)
+  refusal_fallback: false      # true = server-seitiger Wechsel auf anderes Modell bei Ablehnung
+  pricing:                     # USD je 1 Mio. Tokens, nur für Kostenschätzung im Log
+    input_per_mtok: 4.0
+    output_per_mtok: 20.0
+  analyst_profile: |
+    Freelancer für Softwareentwicklung, IT und Digitalisierung (DACH, deutsch- und englischsprachig).
+    Schwerpunkte: Python, SQL/Datenbanken, APIs und Schnittstellen, Automatisierung, interne Tools und
+    Dashboards, Web/Shop-Erweiterungen, Android/Desktop, MVP/PoC, Weiterentwicklung bestehender Systeme.
+    Beratung für KMU: Prozessdigitalisierung, Anforderungen, Lösungsdesign, Softwareauswahl, KI-Einsatz.
+    Bevorzugt: kleine, klar abgegrenzte Aufträge (ca. 1–20 Personentage), direkte Auftraggeber, remote.

@@ -3,11 +3,11 @@
 Python-Agent, der passende kleine IT-Freelancer- und Beratungsaufträge findet, bewertet,
 in SQLite speichert und die besten neuen Leads per HTML-E-Mail meldet.
 
-> Stand: **Task 03 – E-Mail als Source Connector.** Vorhanden sind Konfiguration,
+> Stand: **Task 04 – Strukturierte LLM-Analyse.** Vorhanden sind Konfiguration,
 > Logging, CLI-Grundgerüst, Domänenmodelle, SQLite-Persistenz mit Repository-Schicht,
-> deterministische Hard-Fail-Regeln, Score Engine, A/B/C/REJECT-Klassifizierung sowie der
-> offline testbare EmailSourceConnector. LLM-Analyse, Pipeline und Report folgen
-> in den nächsten Tasks (`tasks/`).
+> deterministische Hard-Fail-Regeln, Score Engine, A/B/C/REJECT-Klassifizierung, der
+> offline testbare EmailSourceConnector und die LLM-Analyse hinter einer Provider-Schnittstelle.
+> Pipeline-Orchestrierung und HTML-Report folgen in Task 05 (`tasks/`).
 
 ## Voraussetzungen
 
@@ -63,6 +63,9 @@ Die Konfiguration ist Pydantic-basiert (`src/config.py`). Priorität, höchste z
 | `logging.level`    | `AGENT_LOGGING__LEVEL`   | `INFO`                     |
 | `logging.format`   | `AGENT_LOGGING__FORMAT`  | `json` (`json` \| `text`)  |
 | `scoring.*`        | z. B. `AGENT_SCORING__THRESHOLDS__A` | siehe `config/settings.yaml` |
+| `llm.provider`     | `AGENT_LLM__PROVIDER`    | `anthropic` (`fake` = offline) |
+| `llm.model`        | `AGENT_LLM__MODEL`       | `claude-opus-5-5`          |
+| API-Key            | `ANTHROPIC_API_KEY`      | – (nur Environment/`.env`) |
 
 Secrets gehören ausschließlich in `.env` bzw. Environment-Variablen, niemals in
 `config/settings.yaml` oder ins Repository. `.env.example` enthält nur Platzhalter.
@@ -156,6 +159,41 @@ Der `EmailSourceConnector` (`src/sources/email/`) verarbeitet Projektbenachricht
 
 Mailinhalte sind untrusted input und werden unverändert als Daten weitergegeben.
 
+## LLM-Analyse
+
+Das LLM extrahiert und schätzt ausschließlich **Merkmale** (`LeadAnalysis`); der Score wird
+danach deterministisch in Python berechnet. Code in `src/llm/`:
+
+- `provider.py`: anbieterneutraler Vertrag `LLMProvider.complete(LLMRequest) -> LLMResponse`
+  mit eigener Fehlerhierarchie (`retryable` je Fehlerart) und optionalen Token-/Kostenangaben.
+- `anthropic_provider.py`: Adapter für die Claude API (einziger Ort mit SDK-Abhängigkeit,
+  wird erst bei `provider: anthropic` geladen). Nutzt Structured Outputs
+  (`output_config.format`) und `effort`. Ein server-seitiger Refusal-Fallback auf ein anderes
+  Modell ist optional (`llm.refusal_fallback`, Standard `false` für reproduzierbare Ergebnisse).
+- `fake.py`: `FakeLLMProvider` für Tests und Demos – offline, ohne API-Key.
+- `prompts.py`: versionierter System-Prompt (`PROMPT_VERSION` + Hash des Profils),
+  Nutzernachricht mit `<quelldaten>`/`<auftragstext>`-Delimitern, striktes JSON-Schema
+  (abgeleitet aus `LeadAnalysis`, alle Felder Pflicht, Werte nullable, keine Zusatzfelder).
+- `validation.py`: strikte Pydantic-Validierung; Antworten mit Entscheidungsfeldern
+  (`score_total`, `classification`, …) sind ungültig. **Grounding:** Budget, Währung,
+  Zertifizierungen, Aufwand und Sicherheitsüberprüfung, die nicht im Quelltext belegt sind,
+  werden verworfen (None) und als `grounding_issues` gemeldet.
+- `service.py`: `LeadAnalysisService.analyze(candidate) -> AnalysisResult` mit
+  Prompt-Version, Provider, tatsächlichem Modell, Versuchen und Usage/Kosten.
+
+**Retry** nur bei technischen Fehlern (Timeout, Rate Limit, Verbindungs-/Serverfehler,
+abgeschnittene Antwort; mit Backoff) und strukturell ungültigen Antworten (kein JSON,
+Schemafehler, Entscheidungsfelder; mit Korrekturhinweis ohne Antwort-Echo). Eine gültige
+Analyse wird nie wiederholt; Ablehnungen und Auth-/Requestfehler ebenfalls nicht.
+
+**Sicherheit:** Auftragstexte sind untrusted input. Systemregeln stehen nur im System-Prompt;
+Delimiter-Tags im Auftragstext werden neutralisiert; an das LLM gehen nur Titel, Beschreibung
+und strukturierte Quelldaten (keine Mail-Metadaten, keine URLs). Logs enthalten nur Metadaten
+(Modell, Prompt-Version, Tokens, Kosten), keine Inhalte. `Lead` speichert `prompt_version`
+und `llm_model`.
+
+Ohne API-Key lokal arbeiten: `AGENT_LLM__PROVIDER=fake`.
+
 ## Logging
 
 Strukturiertes Logging nach `stderr`: im Format `json` eine JSON-Zeile pro Eintrag,
@@ -167,7 +205,11 @@ im Format `text` eine lesbare Zeile mit angehängten `key=value`-Feldern.
 pytest
 ```
 
-Die Tests laufen vollständig offline und verwenden temporäre Verzeichnisse/Datenbanken.
+Die Tests laufen vollständig offline (Netzzugriffe sind in Tests blockiert, kein API-Key nötig)
+und verwenden temporäre Verzeichnisse/Datenbanken.
+
+Bestehende Datenbanken aus älteren Schemaständen werden von `init-db` erkannt
+(`SchemaMismatchError`); bis zur Einführung von Migrationen die Datei `data/agent.db` neu anlegen.
 
 ## Docker
 
@@ -191,6 +233,7 @@ src/
   domain/          Pydantic-Modelle, Enums, Statusfluss
   scoring/         Hard Fails, Budget/Tagessatz, Score Engine, Klassifizierung
   sources/         Connector-Vertrag; email/: Postfach, Parser, Projekt-Splitting, Connector
+  llm/             Provider-Vertrag, Anthropic-Adapter, Fake, Prompt, Validierung, Service
   storage/         Base/Namenskonvention, ORM-Tabellen, Engine/Sessions, Repositories
 tasks/             Umsetzungsschritte
 tests/             pytest-Tests

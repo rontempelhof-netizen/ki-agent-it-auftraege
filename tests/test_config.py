@@ -139,3 +139,37 @@ def test_invalid_value_raises_validation_error(write_yaml):
 
     with pytest.raises(ValidationError):
         load_settings(config_file=path, env_file=None)
+
+
+def test_repository_config_matches_llm_defaults():
+    from src.config import LLMSettings
+
+    llm = load_settings(config_file=REPO_CONFIG, env_file=None).llm
+    assert llm == LLMSettings()
+    assert llm.provider == "anthropic" and llm.model == "claude-opus-5-5"
+
+
+def test_refusal_fallback_is_disabled_by_default_and_configurable(monkeypatch):
+    from src.config import LLMSettings
+
+    assert LLMSettings().refusal_fallback is False
+    assert load_settings(config_file=REPO_CONFIG, env_file=None).llm.refusal_fallback is False
+
+    monkeypatch.setenv("AGENT_LLM__REFUSAL_FALLBACK", "true")
+    assert load_settings(config_file=REPO_CONFIG, env_file=None).llm.refusal_fallback is True
+
+
+def test_llm_provider_and_model_from_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_LLM__PROVIDER", "fake")
+    monkeypatch.setenv("AGENT_LLM__MODEL", "claude-sonnet-5-5")
+
+    llm = load_settings(config_file=REPO_CONFIG, env_file=None).llm
+
+    assert (llm.provider, llm.model) == ("fake", "claude-sonnet-5-5")
+
+
+def test_api_key_is_not_part_of_configuration():
+    from src.config import Settings
+
+    dumped = Settings().model_dump_json().lower()
+    assert "api_key" not in dumped and "sk-ant" not in dumped

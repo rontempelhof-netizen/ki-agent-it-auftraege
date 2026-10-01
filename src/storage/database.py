@@ -14,16 +14,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, event, make_url, select
+from sqlalchemy import Engine, create_engine, event, inspect, make_url, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import DatabaseSettings
 from src.storage.base import Base
 from src.storage.orm import AppMeta
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 logger = logging.getLogger(__name__)
+
+
+class SchemaMismatchError(RuntimeError):
+    """Bestehende Datenbank passt nicht zum Code-Schema (Migration bzw. Neuanlage nötig)."""
 
 
 def _ensure_sqlite_directory(url: str) -> None:
@@ -68,6 +72,7 @@ def init_db(engine: Engine) -> str:
     bestehenden Datenbanken erfordern ein Migrationswerkzeug.
     """
     Base.metadata.create_all(engine)
+    _verify_columns(engine)
     with Session(engine) as session, session.begin():
         if session.get(AppMeta, "initialized_at") is None:
             session.add(AppMeta(key="initialized_at", value=datetime.now(UTC).isoformat()))
@@ -80,3 +85,19 @@ def init_db(engine: Engine) -> str:
 def get_schema_version(engine: Engine) -> str | None:
     with Session(engine) as session:
         return session.scalar(select(AppMeta.value).where(AppMeta.key == "schema_version"))
+
+
+def _verify_columns(engine: Engine) -> None:
+    """Erkennt Spalten, die ``create_all`` in bestehenden Tabellen nicht nachrüstet."""
+    inspector = inspect(engine)
+    missing = [
+        f"{table.name}.{column.name}"
+        for table in Base.metadata.sorted_tables
+        for column in table.columns
+        if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
+    ]
+    if missing:
+        raise SchemaMismatchError(
+            "Datenbankschema veraltet, fehlende Spalten: " + ", ".join(missing)
+            + ". Datenbank neu anlegen oder Migration durchführen."
+        )

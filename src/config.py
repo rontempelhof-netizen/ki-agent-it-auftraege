@@ -216,6 +216,46 @@ class SourcesSettings(BaseModel):
     email: EmailSourceSettings = EmailSourceSettings()
 
 
+class LLMPricing(BaseModel):
+    """Preise je 1 Mio. Tokens (USD) zur Kostenschätzung; optional."""
+
+    input_per_mtok: float = Field(ge=0)
+    output_per_mtok: float = Field(ge=0)
+
+
+DEFAULT_ANALYST_PROFILE = """\
+Freelancer für Softwareentwicklung, IT und Digitalisierung (DACH, deutsch- und englischsprachig).
+Schwerpunkte: Python, SQL/Datenbanken, APIs und Schnittstellen, Automatisierung, interne Tools und
+Dashboards, Web/Shop-Erweiterungen, Android/Desktop, MVP/PoC, Weiterentwicklung bestehender Systeme.
+Beratung für KMU: Prozessdigitalisierung, Anforderungen, Lösungsdesign, Softwareauswahl, KI-Einsatz.
+Bevorzugt: kleine, klar abgegrenzte Aufträge (ca. 1–20 Personentage), direkte Auftraggeber, remote."""
+
+
+class LLMSettings(BaseModel):
+    provider: Literal["anthropic", "fake"] = "anthropic"
+    model: str = Field("claude-opus-5-5", min_length=1)
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    max_output_tokens: int = Field(16_000, gt=0)
+    timeout_seconds: float = Field(120, gt=0)
+    max_attempts: int = Field(3, ge=1, le=10)
+    """Gesamtzahl Versuche je Lead bei technischen/strukturellen Fehlern (inkl. erstem Versuch)."""
+    retry_backoff_seconds: float = Field(2.0, ge=0)
+    max_input_chars: int = Field(20_000, gt=0)
+    refusal_fallback: bool = False
+    """Server-seitiger Fallback auf ein anderes Modell bei Ablehnung (nur Anthropic).
+
+    Standardmäßig aus: reproduzierbare Ergebnisse ohne implizite Modellumschaltung.
+    """
+    pricing: LLMPricing | None = LLMPricing(input_per_mtok=4.0, output_per_mtok=20.0)
+    analyst_profile: str = Field(DEFAULT_ANALYST_PROFILE, min_length=1)
+    """Profil des Auftragnehmers für die Fit-Einschätzung (technical_fit, consulting_fit)."""
+
+    @field_validator("analyst_profile")
+    @classmethod
+    def _strip_profile(cls, value: str) -> str:
+        return value.strip()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix=ENV_PREFIX,
@@ -233,6 +273,7 @@ class Settings(BaseSettings):
     logging: LoggingSettings = LoggingSettings()
     scoring: ScoringSettings = ScoringSettings()
     sources: SourcesSettings = SourcesSettings()
+    llm: LLMSettings = LLMSettings()
 
     @classmethod
     def settings_customise_sources(

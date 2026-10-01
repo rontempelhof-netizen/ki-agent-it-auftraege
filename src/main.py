@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from src import __version__
 from src.config import ConfigError, Settings, load_settings
 from src.logging_setup import configure_logging
-from src.storage.database import create_db_engine, init_db
+from src.storage.database import SchemaMismatchError, create_db_engine, init_db
 
 logger = logging.getLogger("src.main")
 
@@ -43,6 +43,9 @@ def _cmd_init_db(settings: Settings) -> int:
     engine = create_db_engine(settings.database)
     try:
         version = init_db(engine)
+    except SchemaMismatchError as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 2
     finally:
         engine.dispose()
     print(f"Datenbank initialisiert: {settings.database.url} (Schema-Version {version})")

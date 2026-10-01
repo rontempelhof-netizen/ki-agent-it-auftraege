@@ -53,3 +53,19 @@ def test_in_memory_database_and_foreign_keys_enabled():
     with session_factory() as session:
         assert session.execute(text("PRAGMA foreign_keys")).scalar_one() == 1
     engine.dispose()
+
+
+def test_outdated_schema_is_detected(tmp_path):
+    """create_all rüstet keine Spalten nach; init_db meldet das klar statt später zu scheitern."""
+    import pytest
+
+    from src.storage.database import SchemaMismatchError
+
+    engine = create_db_engine(DatabaseSettings(url=f"sqlite:///{(tmp_path / 'v3.db').as_posix()}"))
+    init_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE leads DROP COLUMN llm_model"))  # Stand Schema-Version 3
+
+    with pytest.raises(SchemaMismatchError, match="leads.llm_model"):
+        init_db(engine)
+    engine.dispose()

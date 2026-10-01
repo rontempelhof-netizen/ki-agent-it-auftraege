@@ -13,6 +13,7 @@ dependencies = [
     "pydantic-settings>=2.3,<3",
     "SQLAlchemy>=2.0,<3",
     "PyYAML>=6.0",
+    "anthropic>=1.11,<2",
 ]
 
 [project.optional-dependencies]

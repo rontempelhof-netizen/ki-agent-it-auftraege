@@ -112,6 +112,7 @@ class LeadRepository:
         score: ScoreResult,
         analysis: LeadAnalysis | None = None,
         prompt_version: str | None = None,
+        llm_model: str | None = None,
     ) -> Lead:
         """Ersetzt Score, Klasse, Hard Fails und Score-Details (z. B. nach Neubewertung)."""
         row = self._require(lead_id)
@@ -126,6 +127,8 @@ class LeadRepository:
             row.analysis = analysis.model_dump(mode="json")
         if prompt_version is not None:
             row.prompt_version = prompt_version
+        if llm_model is not None:
+            row.llm_model = llm_model
         self._session.flush()
         return self._to_domain(row)
 

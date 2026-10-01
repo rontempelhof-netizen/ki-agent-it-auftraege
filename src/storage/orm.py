@@ -77,7 +77,8 @@ class LeadRow(Base):
     suggested_outreach: Mapped[str | None] = mapped_column(Text)
 
     status: Mapped[str] = mapped_column(String(16))
-    prompt_version: Mapped[str | None] = mapped_column(String(32))
+    prompt_version: Mapped[str | None] = mapped_column(String(64))
+    llm_model: Mapped[str | None] = mapped_column(String(64))
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     score_details: Mapped[list[LeadScoreDetailRow]] = relationship(
