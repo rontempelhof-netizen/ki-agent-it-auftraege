@@ -3,11 +3,10 @@
 Python-Agent, der passende kleine IT-Freelancer- und Beratungsaufträge findet, bewertet,
 in SQLite speichert und die besten neuen Leads per HTML-E-Mail meldet.
 
-> Stand: **Task 04 – Strukturierte LLM-Analyse.** Vorhanden sind Konfiguration,
-> Logging, CLI-Grundgerüst, Domänenmodelle, SQLite-Persistenz mit Repository-Schicht,
-> deterministische Hard-Fail-Regeln, Score Engine, A/B/C/REJECT-Klassifizierung, der
-> offline testbare EmailSourceConnector und die LLM-Analyse hinter einer Provider-Schnittstelle.
-> Pipeline-Orchestrierung und HTML-Report folgen in Task 05 (`tasks/`).
+> Stand: **Task 05 – End-to-End-Vertical-Slice.** Projektmails werden eingelesen, normalisiert,
+> dedupliziert, vorgefiltert, per LLM analysiert, deterministisch bewertet, in SQLite gespeichert
+> und als HTML-Tagesreport ausgegeben (Versand im Dry-Run oder per SMTP). Produktive
+> IMAP-/Gmail-Anbindung und echte LLM-Aufrufe sind konfigurierbar, aber noch nicht im Betrieb erprobt.
 
 ## Voraussetzungen
 
@@ -37,13 +36,44 @@ cp .env.example .env
 Alle Befehle aus dem Projektverzeichnis ausführen:
 
 ```bash
-python -m src.main --help          # Übersicht
-python -m src.main show-config     # wirksame Konfiguration als JSON
-python -m src.main init-db         # SQLite-Datenbank anlegen (idempotent)
-python -m src.main --config pfad/zu/settings.yaml show-config
+python -m src.main --help                  # Übersicht
+python -m src.main show-config             # wirksame Konfiguration als JSON
+python -m src.main init-db                 # SQLite-Datenbank anlegen (idempotent)
+
+python -m src.main crawl                   # Quellen lesen -> analysieren -> speichern -> Report
+python -m src.main crawl --source email    # nur eine Quelle (Connector-Name)
+python -m src.main crawl --fake-llm        # ohne API-Kosten (Fake-LLM)
+python -m src.main crawl --max-llm 5       # LLM-Analysen in diesem Lauf begrenzen
+python -m src.main crawl --no-ack          # Mails nicht als verarbeitet markieren (wiederholbar)
+python -m src.main crawl --send            # Report zusätzlich versenden (gemäß mail.mode)
+python -m src.main crawl --no-report       # keinen HTML-Report erzeugen
+
+python -m src.main report                  # Report des letzten Laufs als HTML-Datei
+python -m src.main report --run-id 3 --output report.html --send
+python -m src.main test-mail --to ich@example.org   # Test-Mail (Standard: Dry-Run)
 ```
 
-Standardmäßig wird die Datenbank unter `data/agent.db` angelegt (`data/` ist git-ignoriert).
+Exit-Codes: `0` Erfolg, `1` teilweise erfolgreich (z. B. eine Quelle fehlerhaft), `2` Fehler.
+Standardmäßig liegen Datenbank, Reports und Dry-Run-Mails unter `data/` (git-ignoriert).
+
+## Demo (offline, ohne API-Key)
+
+Das Beispielpostfach `examples/demo/inbox` enthält realistische Projektmails (freelancermap,
+freelance.de, eine erneut zugestellte Mail, ein bereits bekanntes Projekt, eine Festanstellung,
+einen unbekannten Absender und eine defekte Mail). Das Fake-LLM liefert dazu skriptgesteuerte
+Antworten aus `examples/demo/fake_llm_responses.json`; die Scores berechnet die echte Score Engine.
+
+```bash
+python -m src.main --config config/demo.yaml crawl --send
+# Lauf #1: SUCCESS | Mails 6 | neu 6 | Duplikate 1 | Prefilter 1 | LLM 5 | A 1 B 2 C 1 Reject 2 | ausstehend 0
+# Report: data/demo/reports/report-run-1.html      <- im Browser öffnen
+# Mail (Dry-Run) abgelegt: data/demo/outbox/....eml – nichts versendet
+
+python -m src.main --config config/demo.yaml crawl   # zweiter Lauf: nichts Neues, keine LLM-Aufrufe
+```
+
+Zurücksetzen: Ordner `data/demo` löschen. Der End-to-End-Test (`tests/test_pipeline_e2e.py`)
+verwendet genau diese Demo-Daten.
 
 ## Konfiguration
 
@@ -194,6 +224,61 @@ und `llm_model`.
 
 Ohne API-Key lokal arbeiten: `AGENT_LLM__PROVIDER=fake`.
 
+## Pipeline
+
+`src/pipeline/runner.py` orchestriert alle Schritte; die Komponenten kennen sich nicht und werden
+in `src/app.py` aus der Konfiguration zusammengesetzt.
+
+```
+Lauf starten (crawl_runs)
+ 1. ausstehende Analysen früherer Läufe (pending_analysis, älteste zuerst, im LLM-Limit)
+ 2. je Connector: safe_fetch()  -> Fehler der Quelle = Laufeintrag, andere Quellen laufen weiter
+ 3. je RawSourceItem:
+      Normalize      -> LeadCandidate (eindeutige Budget-/Remote-Angaben deterministisch)
+      Basic Dedup    -> bekannte Quelle+Source-ID oder URL: nur Sichtung (last_seen), KEIN LLM
+      Prefilter      -> deterministische Ausschlüsse, gespeichert als REJECT/prefiltered, KEIN LLM
+      LLM-Limit      -> darüber: als pending_analysis speichern (geht nicht verloren)
+      LLM Analysis   -> LeadAnalysisService (Validierung, Grounding)
+      Score          -> merge_source_facts + ScoreEngine (deterministisch)
+      SQLite         -> eigene Transaktion je Lead
+ 4. acknowledge(): nur Nachrichten, deren Leads alle gespeichert wurden
+Lauf abschließen (Status SUCCESS/PARTIAL/FAILED, Zähler, Warnungen, Fehler)
+```
+
+- **LLM-Fehler:** Der Kandidat wird als `pending_analysis` mit Fehlertext gespeichert und im
+  nächsten Lauf erneut analysiert; nach `pipeline.max_analysis_failures` Versuchen `analysis_failed`.
+- **Datenbankfehler** bei einem Lead: nur dieser Lead fehlt, seine Mail wird nicht bestätigt und
+  im nächsten Lauf erneut gelesen; bereits gespeicherte Leads derselben Mail sind dann Duplikate.
+- **Gespeichert je Lead:** Quelldaten, Analyse (JSON), Score und Breakdown (`lead_score_details`),
+  Hard-Fail-Gründe, Prompt-Version, LLM-Modell, Verarbeitungsstatus und -fehler, Lauf-ID,
+  First Seen / Last Seen (auch je Quellvorkommen in `lead_sources`).
+
+### Prefilter: was ohne LLM zuverlässig geht
+
+| Regel | Ohne LLM zuverlässig? |
+|---|---|
+| Reine Festanstellung ("Festanstellung", "unbefristete Anstellung", "permanent position") | ja, mit Verneinungsprüfung ("keine Festanstellung" wird nicht gefiltert) |
+| Arbeitnehmerüberlassung ("Arbeitnehmerüberlassung", "ANÜ") | ja, mit Verneinungsprüfung |
+| Ausdrücklicher Stunden-/Tagessatz in EUR unter `scoring.hard_fail.min_day_rate_eur` | ja, nur bei eindeutigem Muster wie "35 €/h" |
+| Eigene Ausschlussmuster (`prefilter.exclude_patterns`) | ja (vom Nutzer verantwortet) |
+| Pflichtzertifizierungen, Sicherheitsüberprüfung | **nein** – Muss vs. "von Vorteil" braucht Kontext → LLM + Hard Fail |
+| Projektumfang, Präsenzpflicht/Region, Haftung, Länge der Muss-Liste | **nein** → LLM + Hard Fail |
+| Festpreis ohne Aufwandsangabe | **nein** (Tagessatz nicht bestimmbar) → Scoring |
+
+### Report und Versand
+
+Der Report (`src/report/`, Jinja2 mit HTML-Autoescape) enthält Lauf-ID und Zeitpunkt, gelesene
+Mails, neue Kandidaten, Duplikate, Prefilter-Rejects, LLM-Analysen, A/B/C/Reject-Zahlen,
+ausstehende Analysen, geschätzte LLM-Kosten sowie Quellenfehler und Warnungen. Je A-/B-Lead:
+Score, Titel, Auftraggeber, Quelle, Kategorie, Remote/Standort, Budget, Aufwand, Kurzfassung,
+Fit-Begründung, Muss-Anforderungen, Risiken, offene Fragen, nächster Schritt, Erstansprache
+(nur Entwurf) und Original-Link (nur http/https). A vor B, innerhalb der Klasse nach Score
+absteigend; C und Reject werden gespeichert, aber nur gezählt (`report.detail_classes`).
+
+Versand (`src/notify/mailer.py`): `mail.mode: dry_run` (Standard) legt die Mail nur als `.eml` in
+`mail.outbox_dir` ab. `smtp` versendet an `mail.recipients` (nur eigene Adressen); das Passwort
+ausschließlich per `AGENT_MAIL__SMTP_PASSWORD`. Es werden nie Kunden kontaktiert.
+
 ## Logging
 
 Strukturiertes Logging nach `stderr`: im Format `json` eine JSON-Zeile pro Eintrag,
@@ -234,6 +319,11 @@ src/
   scoring/         Hard Fails, Budget/Tagessatz, Score Engine, Klassifizierung
   sources/         Connector-Vertrag; email/: Postfach, Parser, Projekt-Splitting, Connector
   llm/             Provider-Vertrag, Anthropic-Adapter, Fake, Prompt, Validierung, Service
+  pipeline/        Normalisierung, Prefilter, Orchestrierung (runner.py)
+  report/          Report-Ansichtsmodell, Jinja2-Template, HTML/Text-Rendering
+  notify/          Mail-Versand (Dry-Run/SMTP)
+  app.py           Verdrahtung der Komponenten aus der Konfiguration
+examples/demo/     Demo-Postfach und Fake-LLM-Antworten (auch vom E2E-Test genutzt)
   storage/         Base/Namenskonvention, ORM-Tabellen, Engine/Sessions, Repositories
 tasks/             Umsetzungsschritte
 tests/             pytest-Tests

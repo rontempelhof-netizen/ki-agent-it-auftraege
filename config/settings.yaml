@@ -113,3 +113,45 @@ llm:
     Dashboards, Web/Shop-Erweiterungen, Android/Desktop, MVP/PoC, Weiterentwicklung bestehender Systeme.
     Beratung für KMU: Prozessdigitalisierung, Anforderungen, Lösungsdesign, Softwareauswahl, KI-Einsatz.
     Bevorzugt: kleine, klar abgegrenzte Aufträge (ca. 1–20 Personentage), direkte Auftraggeber, remote.
+  fake_responses_file: null    # nur provider=fake: JSON mit skriptgesteuerten Antworten (Demo)
+
+# Pipeline-Orchestrierung
+pipeline:
+  max_llm_analyses_per_run: 20   # weitere Kandidaten bleiben als "pending_analysis" gespeichert
+  max_analysis_failures: 3       # danach "analysis_failed" (keine endlosen Wiederholungen)
+
+# Deterministischer Prefilter vor dem LLM (nur zuverlässig erkennbare Ausschlüsse).
+# Muster: reguläre Ausdrücke, case-insensitiv; "kein/keine/ohne/not" kurz davor hebt einen Treffer auf.
+prefilter:
+  enabled: true
+  permanent_employment_patterns:
+    - '\bfestanstellung\b'
+    - '\bfest angestellt'
+    - '\bunbefristete[nrs]?\s+(?:anstellung|arbeitsverhältnis|stelle)'
+    - '\bpermanent (?:position|employment|role)\b'
+  staff_leasing_patterns:
+    - '\barbeitnehmerüberlassung\b'
+    - '\banü\b'
+  exclude_patterns: []
+  negation_window: 25
+
+# HTML-Tagesreport
+report:
+  title: IT-Aufträge – Tagesreport
+  output_dir: data/reports
+  timezone: Europe/Berlin
+  detail_classes: [A, B]         # C/REJECT werden gespeichert und nur gezählt
+
+# Report-Versand. dry_run legt die Mail nur als .eml in outbox_dir ab.
+# SMTP-Passwort ausschließlich per Environment: AGENT_MAIL__SMTP_PASSWORD
+mail:
+  mode: dry_run                  # dry_run | smtp
+  outbox_dir: data/outbox
+  sender: ki-agent@localhost
+  recipients: []                 # eigene Adresse(n); niemals Kundenadressen
+  subject_prefix: "[IT-Aufträge]"
+  smtp_host: null
+  smtp_port: 587
+  smtp_starttls: true
+  smtp_username: null
+  timeout_seconds: 30

@@ -1,0 +1,129 @@
+{
+  "_comment": "Skriptgesteuerte Antworten des Fake-LLM-Providers fuer die Offline-Demo. Die erste Regel, deren 'match' in der Nutzernachricht vorkommt, liefert die Antwort. Kein Score: der wird deterministisch berechnet.",
+  "default": {},
+  "responses": [
+    {
+      "match": "Titel: Shopware 6: Fehler im Checkout",
+      "response": {
+        "summary": "Nach dem Update auf Shopware 6.5 bricht der PayPal-Checkout sporadisch ab; vermutet wird ein Konflikt zwischen zwei Plugins.",
+        "category": "web_shop",
+        "required_skills": ["Shopware 6", "PHP", "Symfony", "PayPal-Integration"],
+        "must_have_requirements": ["Erfahrung mit Shopware-6-Plugins"],
+        "engagement_type": "project",
+        "scope_size": "small",
+        "scope_clarity": "clear",
+        "estimated_person_days": 5,
+        "budget_min": 4000,
+        "budget_max": 4000,
+        "currency": "EUR",
+        "budget_type": "fixed",
+        "customer_type": "direct_sme",
+        "decision_complexity": "low",
+        "remote_status": "remote",
+        "region": "dach",
+        "language": "de",
+        "technical_fit": "high",
+        "entry_barrier": "low",
+        "urgency": "high",
+        "follow_up_potential": "medium",
+        "consulting_fit": "low",
+        "fit_reason": "Klar abgegrenzter Bugfix in einem bestehenden Shop-System, direkter Auftraggeber, kurzfristiger Start und fairer Festpreis.",
+        "risks": ["Ursache könnte beim Payment-Provider statt im Plugin liegen"],
+        "open_questions": ["Gibt es Logs zu den abgebrochenen Bestellungen?", "Welche Plugin-Versionen sind installiert?"],
+        "suggested_next_step": "Kurzfristig Rückfrage zu Logs und Staging-Zugang stellen, dann Festpreis bestätigen.",
+        "suggested_outreach": "Guten Tag,\n\nich habe Ihre Ausschreibung zum Checkout-Problem in Shopware 6.5 gesehen. Plugin-Konflikte nach Updates analysiere und behebe ich regelmäßig. Könnten Sie mir vorab Logs der abgebrochenen PayPal-Bestellungen und einen Staging-Zugang bereitstellen? Dann kann ich zeitnah mit der Analyse beginnen.\n\nViele Grüße"
+      }
+    },
+    {
+      "match": "Titel: Python-Skript für täglichen CSV-Import",
+      "response": {
+        "summary": "Tägliche automatisierte Prüfung und Übernahme von Lieferantenpreislisten (CSV) in eine MS-SQL-Datenbank inklusive Fehlerprotokoll.",
+        "category": "data_sql",
+        "required_skills": ["Python", "MS SQL", "CSV-Verarbeitung"],
+        "engagement_type": "project",
+        "scope_size": "small",
+        "scope_clarity": "clear",
+        "estimated_person_days": 10,
+        "remote_status": "remote",
+        "language": "de",
+        "technical_fit": "high",
+        "entry_barrier": "low",
+        "urgency": "medium",
+        "follow_up_potential": "medium",
+        "consulting_fit": "low",
+        "fit_reason": "Typische Automatisierung mit Python und SQL, klar beschriebenes Ergebnis, vollständig remote.",
+        "risks": ["Datenqualität der Lieferantendateien unbekannt"],
+        "open_questions": ["Wie viele Lieferanten und Dateiformate gibt es?", "Soll der Import produktiv betrieben und überwacht werden?"],
+        "suggested_next_step": "Beispieldateien und Zielschema anfragen, danach Aufwand bestätigen.",
+        "suggested_outreach": "Guten Tag,\n\nden täglichen CSV-Import nach MS SQL mit Prüfregeln und Fehlerprotokoll setze ich gern um. Damit ich den Aufwand belastbar einschätzen kann: Könnten Sie mir zwei bis drei Beispieldateien und das Zielschema schicken?\n\nViele Grüße"
+      }
+    },
+    {
+      "match": "Titel: Senior SAP S/4HANA",
+      "response": {
+        "summary": "Langfristige S/4HANA-Migration im Konzernumfeld, Vollzeit vor Ort über einen Vermittler.",
+        "category": "consulting",
+        "required_skills": ["SAP S/4HANA", "Migration"],
+        "engagement_type": "staff_leasing",
+        "scope_size": "very_large",
+        "scope_clarity": "partial",
+        "estimated_person_days": 240,
+        "customer_type": "agency",
+        "decision_complexity": "high",
+        "remote_status": "onsite",
+        "region": "dach",
+        "location": "Walldorf",
+        "language": "de",
+        "technical_fit": "low",
+        "entry_barrier": "high",
+        "urgency": "medium",
+        "follow_up_potential": "low",
+        "consulting_fit": "low"
+      }
+    },
+    {
+      "match": "Titel: Python-Entwickler (m/w/d) für API-Anbindung",
+      "response": {
+        "summary": "REST-API-Anbindung der Warenwirtschaft eines Großhändlers an den WooCommerce-Shop mit stündlicher Synchronisation von Beständen und Aufträgen.",
+        "category": "integration_api",
+        "required_skills": ["Python", "REST-API", "WooCommerce"],
+        "engagement_type": "project",
+        "scope_size": "medium",
+        "scope_clarity": "clear",
+        "remote_status": "remote",
+        "language": "de",
+        "technical_fit": "high",
+        "entry_barrier": "low",
+        "urgency": "medium",
+        "follow_up_potential": "high",
+        "consulting_fit": "low",
+        "fit_reason": "Schnittstelle zwischen bestehendem ERP und Shop – genau das Profil API/Integration, remote und mit Folgepotenzial.",
+        "risks": ["Teilzeit-Auslastung nicht beziffert", "Schnittstelle der Warenwirtschaft unbekannt"],
+        "open_questions": ["Welche Warenwirtschaft wird eingesetzt und bietet sie eine API?", "Wie hoch ist die Auslastung pro Woche?"],
+        "suggested_next_step": "Rückfrage zur Warenwirtschaft und zum Stundenumfang, dann Angebot mit Meilensteinen.",
+        "suggested_outreach": "Guten Tag,\n\ndie Anbindung einer Warenwirtschaft an WooCommerce per REST-API habe ich bereits mehrfach umgesetzt. Welches Warenwirtschaftssystem setzen Sie ein, und mit welcher wöchentlichen Auslastung planen Sie?\n\nViele Grüße"
+      }
+    },
+    {
+      "match": "Titel: Datenmigration MySQL nach PostgreSQL",
+      "response": {
+        "summary": "Migration einer Vereinsverwaltung von MySQL nach PostgreSQL inklusive Dublettenbereinigung.",
+        "category": "data_sql",
+        "required_skills": ["MySQL", "PostgreSQL", "Datenmigration"],
+        "engagement_type": "project",
+        "scope_size": "small",
+        "scope_clarity": "partial",
+        "estimated_person_days": 10,
+        "remote_status": "hybrid",
+        "region": "dach",
+        "location": "München",
+        "language": "de",
+        "technical_fit": "medium",
+        "entry_barrier": "medium",
+        "urgency": "high",
+        "follow_up_potential": "low",
+        "consulting_fit": "low"
+      }
+    }
+  ]
+}

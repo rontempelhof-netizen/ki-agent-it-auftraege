@@ -11,10 +11,10 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, sessionmaker
 
-from src.domain.enums import LeadClass, LeadStatus
+from src.domain.enums import LeadClass, LeadStatus, ProcessingStatus
 from src.domain.models import CrawlRun, Feedback, Lead, LeadAnalysis, LeadSourceRef, ScoreItem, ScoreResult
 from src.domain.status import ensure_transition
 from src.sources.email.seen_store import ProcessedMessage
@@ -80,6 +80,51 @@ class LeadRepository:
         )
         return self._to_domain(row) if row else None
 
+    def find_by_url(self, url: str) -> Lead | None:
+        """Findet einen Lead über die (kanonische) Projekt-URL eines beliebigen Vorkommens."""
+        row = self._session.scalar(
+            select(LeadRow)
+            .outerjoin(LeadSourceRow)
+            .where(or_(LeadRow.source_url == url, LeadSourceRow.source_url == url))
+            .limit(1)
+        )
+        return self._to_domain(row) if row else None
+
+    def list_pending(self, limit: int | None = None) -> list[Lead]:
+        """Noch nicht analysierte Leads, älteste zuerst."""
+        query = (
+            select(LeadRow)
+            .where(LeadRow.processing_status == ProcessingStatus.PENDING_ANALYSIS.value)
+            .order_by(LeadRow.first_seen_at, LeadRow.id)
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        return [self._to_domain(row) for row in self._session.scalars(query)]
+
+    def count_pending(self) -> int:
+        return len(self.list_pending())
+
+    def list_for_run(self, run_id: int) -> list[Lead]:
+        """Im angegebenen Lauf verarbeitete Leads, absteigend nach Score."""
+        query = select(LeadRow).where(LeadRow.processed_run_id == run_id).order_by(LeadRow.score_total.desc(), LeadRow.id)
+        return [self._to_domain(row) for row in self._session.scalars(query)]
+
+    def replace(self, lead_id: int, lead: Lead) -> Lead:
+        """Überschreibt Analyse-, Score- und Verarbeitungsdaten eines bestehenden Leads.
+
+        Unverändert bleiben ID, Erst-/Letztsichtung, Vertriebsstatus und Quellvorkommen.
+        """
+        row = self._require(lead_id)
+        keep = {"first_seen_at", "last_seen_at", "status"}
+        for field, value in lead.model_dump(include=_LEAD_COLUMN_FIELDS - keep).items():
+            setattr(row, field, _plain(value))
+        row.analysis = lead.analysis.model_dump(mode="json") if lead.analysis else None
+        row.score_details.clear()
+        self._session.flush()  # alte Details vor dem Einfügen löschen (Unique-Constraint)
+        row.score_details = _score_rows(lead.score_breakdown)
+        self._session.flush()
+        return self._to_domain(row)
+
     def list_leads(
         self,
         classes: Iterable[LeadClass] | None = None,
@@ -144,6 +189,9 @@ class LeadRepository:
         row = self._session.scalar(
             select(LeadSourceRow).where(LeadSourceRow.source == source, LeadSourceRow.source_item_id == source_item_id)
         )
+        if row is not None and row.lead_id != lead_id:
+            raise DuplicateLeadError(f"Quellvorkommen {source}/{source_item_id} gehört zu Lead {row.lead_id}")
+        lead_row = self._require(lead_id)  # Referenz halten (Identity-Map hält Objekte nur schwach)
         if row is None:
             row = LeadSourceRow(
                 source=source,
@@ -152,11 +200,11 @@ class LeadRepository:
                 first_seen_at=seen_at,
                 last_seen_at=seen_at,
             )
-            self._require(lead_id).sources.append(row)
-        elif row.lead_id != lead_id:
-            raise DuplicateLeadError(f"Quellvorkommen {source}/{source_item_id} gehört zu Lead {row.lead_id}")
+            lead_row.sources.append(row)
         else:
             row.last_seen_at = max(row.last_seen_at, seen_at)
+        if lead_row.last_seen_at is None or lead_row.last_seen_at < seen_at:
+            lead_row.last_seen_at = seen_at
         self._session.flush()
         return LeadSourceRef.model_validate(row, from_attributes=True)
 
@@ -262,3 +310,18 @@ class ProcessedEmailStore:
             received_at=row.received_at,
             item_count=row.item_count,
         )
+
+
+class ScopedProcessedEmailStore:
+    """``SeenMessageStore`` mit eigener kurzer Transaktion je Aufruf (für langlebige Connectoren)."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def is_seen(self, key: str) -> bool:
+        with self._session_factory() as session:
+            return ProcessedEmailStore(session).is_seen(key)
+
+    def mark_seen(self, messages: Iterable[ProcessedMessage], processed_at: datetime) -> None:
+        with self._session_factory() as session, session.begin():
+            ProcessedEmailStore(session).mark_seen(messages, processed_at)

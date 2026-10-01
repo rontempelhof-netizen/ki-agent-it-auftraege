@@ -69,3 +69,16 @@ def test_outdated_schema_is_detected(tmp_path):
     with pytest.raises(SchemaMismatchError, match="leads.llm_model"):
         init_db(engine)
     engine.dispose()
+
+
+def test_changed_nullability_is_detected(tmp_path):
+    import pytest
+
+    from src.storage.database import SchemaMismatchError
+
+    engine = create_db_engine(DatabaseSettings(url=f"sqlite:///{(tmp_path / 'v4.db').as_posix()}"))
+    with engine.begin() as conn:  # Schema-Version 4: lead_class war NOT NULL
+        conn.execute(text("CREATE TABLE leads (id INTEGER PRIMARY KEY, lead_class VARCHAR(8) NOT NULL)"))
+    with pytest.raises(SchemaMismatchError, match="leads.lead_class muss NULL erlauben"):
+        init_db(engine)
+    engine.dispose()

@@ -94,6 +94,17 @@ class LeadStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class ProcessingStatus(StrEnum):
+    """Technischer Verarbeitungsstand eines Leads (unabhängig vom Vertriebsstatus)."""
+
+    ANALYZED = "analyzed"
+    PREFILTERED = "prefiltered"
+    PENDING_ANALYSIS = "pending_analysis"
+    """Noch nicht analysiert (LLM-Limit erreicht oder vorübergehender LLM-Fehler)."""
+    ANALYSIS_FAILED = "analysis_failed"
+    """Analyse endgültig fehlgeschlagen (maximale Fehlversuche erreicht)."""
+
+
 class CrawlRunStatus(StrEnum):
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"

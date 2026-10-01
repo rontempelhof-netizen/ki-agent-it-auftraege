@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -22,7 +22,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from src.domain.enums import Region
+from src.domain.enums import LeadClass, Region
 
 ENV_PREFIX = "AGENT_"
 CONFIG_FILE_ENV_VAR = "AGENT_CONFIG_FILE"
@@ -247,6 +247,8 @@ class LLMSettings(BaseModel):
     Standardmäßig aus: reproduzierbare Ergebnisse ohne implizite Modellumschaltung.
     """
     pricing: LLMPricing | None = LLMPricing(input_per_mtok=4.0, output_per_mtok=20.0)
+    fake_responses_file: Path | None = None
+    """Nur ``provider: fake``: JSON-Datei mit skriptgesteuerten Antworten (Demo/Tests)."""
     analyst_profile: str = Field(DEFAULT_ANALYST_PROFILE, min_length=1)
     """Profil des Auftragnehmers für die Fit-Einschätzung (technical_fit, consulting_fit)."""
 
@@ -254,6 +256,57 @@ class LLMSettings(BaseModel):
     @classmethod
     def _strip_profile(cls, value: str) -> str:
         return value.strip()
+
+
+class PipelineSettings(BaseModel):
+    max_llm_analyses_per_run: int = Field(20, ge=0)
+    """Obergrenze der LLM-Analysen je Lauf; überzählige Kandidaten bleiben als pending gespeichert."""
+    max_analysis_failures: int = Field(3, ge=1)
+    """Nach so vielen fehlgeschlagenen Analysen wird ein Lead als analysis_failed markiert."""
+
+
+class PrefilterSettings(BaseModel):
+    """Deterministische Ausschlussregeln vor dem LLM (nur zuverlässig erkennbare Fälle)."""
+
+    model_config = ConfigDict(validate_default=True)
+
+    enabled: bool = True
+    permanent_employment_patterns: list[Regex] = [
+        r"\bfestanstellung\b",
+        r"\bfest angestellt",
+        r"\bunbefristete[nrs]?\s+(?:anstellung|arbeitsverhältnis|stelle)",
+        r"\bpermanent (?:position|employment|role)\b",
+    ]
+    staff_leasing_patterns: list[Regex] = [r"\barbeitnehmerüberlassung\b", r"\banü\b"]
+    exclude_patterns: list[Regex] = []
+    """Zusätzliche, frei konfigurierbare Ausschlussmuster."""
+    negation_window: int = Field(25, ge=0)
+    """Zeichen vor einem Treffer, in denen "kein/keine/ohne/not" den Treffer aufhebt."""
+
+
+class ReportSettings(BaseModel):
+    title: str = "IT-Aufträge – Tagesreport"
+    output_dir: Path = Path("data/reports")
+    timezone: str = "Europe/Berlin"
+    """Zeitzone für Zeitangaben im Report."""
+    detail_classes: list[LeadClass] = [LeadClass.A, LeadClass.B]
+    """Klassen, deren Leads einzeln im Report erscheinen (C/REJECT nur als Zahl)."""
+
+
+class MailSettings(BaseModel):
+    mode: Literal["dry_run", "smtp"] = "dry_run"
+    """dry_run: Mail wird nur als .eml-Datei in outbox_dir abgelegt, nichts wird versendet."""
+    outbox_dir: Path = Path("data/outbox")
+    sender: str = "ki-agent@localhost"
+    recipients: list[str] = []
+    subject_prefix: str = "[IT-Aufträge]"
+    smtp_host: str | None = None
+    smtp_port: int = Field(587, gt=0)
+    smtp_starttls: bool = True
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    """Nur per Environment setzen (AGENT_MAIL__SMTP_PASSWORD), nie in YAML."""
+    timeout_seconds: float = Field(30, gt=0)
 
 
 class Settings(BaseSettings):
@@ -274,6 +327,10 @@ class Settings(BaseSettings):
     scoring: ScoringSettings = ScoringSettings()
     sources: SourcesSettings = SourcesSettings()
     llm: LLMSettings = LLMSettings()
+    pipeline: PipelineSettings = PipelineSettings()
+    prefilter: PrefilterSettings = PrefilterSettings()
+    report: ReportSettings = ReportSettings()
+    mail: MailSettings = MailSettings()
 
     @classmethod
     def settings_customise_sources(

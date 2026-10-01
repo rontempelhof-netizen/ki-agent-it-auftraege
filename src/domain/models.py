@@ -30,6 +30,7 @@ from src.domain.enums import (
     LeadClass,
     LeadStatus,
     Level,
+    ProcessingStatus,
     Region,
     RemoteStatus,
     ScopeClarity,
@@ -215,6 +216,7 @@ class Lead(_BudgetMixin, DomainModel):
     description: str = ""
     published_at: AwareDatetime | None = None
     first_seen_at: AwareDatetime
+    last_seen_at: AwareDatetime | None = None
 
     category: LeadCategory | None = None
     remote_status: RemoteStatus | None = None
@@ -231,7 +233,8 @@ class Lead(_BudgetMixin, DomainModel):
     hard_fail_reasons: StringList = []
     score_total: int = Field(0, ge=0, le=100)
     score_breakdown: list[ScoreItem] = []
-    lead_class: LeadClass = LeadClass.REJECT
+    lead_class: LeadClass | None = LeadClass.REJECT
+    """None, solange der Lead nicht bewertet ist (pending/failed)."""
 
     summary: str | None = None
     fit_reason: str | None = None
@@ -245,6 +248,12 @@ class Lead(_BudgetMixin, DomainModel):
     llm_model: str | None = None
     analysis: LeadAnalysis | None = None
 
+    processing_status: ProcessingStatus = ProcessingStatus.ANALYZED
+    processing_error: str | None = None
+    analysis_failures: int = Field(0, ge=0)
+    processed_run_id: int | None = None
+    """Crawl-Lauf, in dem der Lead zuletzt verarbeitet (analysiert/gefiltert) wurde."""
+
     @model_validator(mode="after")
     def _consistent_score(self) -> Self:
         if self.score_breakdown and self.score_total != sum(i.points for i in self.score_breakdown):
@@ -253,7 +262,79 @@ class Lead(_BudgetMixin, DomainModel):
             raise ValueError("hard_fail und hard_fail_reasons sind inkonsistent")
         if self.hard_fail and self.lead_class != LeadClass.REJECT:
             raise ValueError("Leads mit Hard Fail müssen als REJECT klassifiziert sein")
+        unscored = self.processing_status in {ProcessingStatus.PENDING_ANALYSIS, ProcessingStatus.ANALYSIS_FAILED}
+        if unscored and (self.lead_class is not None or self.score_breakdown or self.hard_fail):
+            raise ValueError("Nicht analysierte Leads haben keine Klasse und keinen Score")
+        if not unscored and self.lead_class is None:
+            raise ValueError("Analysierte bzw. gefilterte Leads benötigen eine Klasse")
         return self
+
+    @classmethod
+    def _from_candidate(cls, candidate: LeadCandidate, **fields: object) -> Lead:
+        """Lead nur aus Quelldaten (ohne LLM-Analyse)."""
+        return cls(
+            source=candidate.source,
+            source_id=candidate.source_id,
+            source_url=candidate.source_url,
+            title=candidate.title,
+            description=candidate.description,
+            published_at=candidate.published_at,
+            first_seen_at=candidate.first_seen_at,
+            last_seen_at=candidate.first_seen_at,
+            remote_status=candidate.remote_status,
+            location=candidate.location,
+            language=candidate.language,
+            customer_name=candidate.customer_name,
+            budget_min=candidate.budget_min,
+            budget_max=candidate.budget_max,
+            currency=candidate.currency,
+            budget_type=candidate.budget_type,
+            **fields,
+        )
+
+    @classmethod
+    def prefiltered(cls, candidate: LeadCandidate, reasons: list[str]) -> Lead:
+        """Vor dem LLM deterministisch ausgeschlossen (gespeichert, damit er nicht erneut geprüft wird)."""
+        return cls._from_candidate(
+            candidate,
+            hard_fail=True,
+            hard_fail_reasons=reasons,
+            lead_class=LeadClass.REJECT,
+            processing_status=ProcessingStatus.PREFILTERED,
+        )
+
+    @classmethod
+    def pending(cls, candidate: LeadCandidate, error: str | None = None, failures: int = 0) -> Lead:
+        """Gespeichert, aber (noch) nicht analysiert; wird in einem späteren Lauf analysiert."""
+        return cls._from_candidate(
+            candidate,
+            lead_class=None,
+            processing_status=ProcessingStatus.PENDING_ANALYSIS,
+            processing_error=error,
+            analysis_failures=failures,
+        )
+
+    def to_candidate(self) -> LeadCandidate:
+        """Rekonstruiert den Kandidaten aus gespeicherten Quelldaten (für ausstehende Analysen)."""
+        if self.processing_status not in {ProcessingStatus.PENDING_ANALYSIS, ProcessingStatus.ANALYSIS_FAILED}:
+            raise ValueError("Nur nicht analysierte Leads enthalten reine Quelldaten")
+        return LeadCandidate(
+            source=self.source,
+            source_id=self.source_id,
+            source_url=self.source_url,
+            title=self.title,
+            description=self.description,
+            published_at=self.published_at,
+            first_seen_at=self.first_seen_at,
+            location=self.location,
+            remote_status=self.remote_status,
+            language=self.language,
+            customer_name=self.customer_name,
+            budget_min=self.budget_min,
+            budget_max=self.budget_max,
+            currency=self.currency,
+            budget_type=self.budget_type,
+        )
 
     @classmethod
     def build(
@@ -279,6 +360,7 @@ class Lead(_BudgetMixin, DomainModel):
             description=candidate.description,
             published_at=candidate.published_at,
             first_seen_at=candidate.first_seen_at,
+            last_seen_at=candidate.first_seen_at,
             category=merged.category,
             remote_status=merged.remote_status,
             location=merged.location,
@@ -354,6 +436,8 @@ class CrawlRun(DomainModel):
     items_rejected: int = Field(0, ge=0)
     warnings: StringList = []
     error_message: str | None = None
+    stats: dict[str, int] = {}
+    """Detaillierte Zähler des Laufs (z. B. duplicates, prefiltered, class_a, ...)."""
 
 
 class Feedback(DomainModel):

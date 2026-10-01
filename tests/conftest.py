@@ -19,15 +19,28 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
-def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests laufen offline: jeder Verbindungsaufbau über Sockets schlägt fehl."""
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Tests laufen offline: jeder Verbindungsaufbau über Sockets schlägt fehl und wird protokolliert."""
+    attempts: list[object] = []
 
-    def guard(*_args: object, **_kwargs: object) -> None:
+    def guard(*args: object, **_kwargs: object) -> None:
+        attempts.append(args)
         raise RuntimeError("Netzwerkzugriff in Tests ist nicht erlaubt")
 
     monkeypatch.setattr(socket.socket, "connect", guard)
     monkeypatch.setattr(socket.socket, "connect_ex", guard)
     monkeypatch.setattr(socket, "create_connection", guard)
+    return attempts
+
+
+@pytest.fixture(autouse=True)
+def dispose_test_engines():
+    """Gibt SQLite-Verbindungen aus Pipeline-Tests frei (sonst ResourceWarning)."""
+    yield
+    from tests.pipeline_support import OPEN_ENGINES
+
+    while OPEN_ENGINES:
+        OPEN_ENGINES.pop().dispose()
 
 
 @pytest.fixture(autouse=True)

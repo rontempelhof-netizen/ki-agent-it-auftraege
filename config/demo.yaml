@@ -1,0 +1,29 @@
+# Offline-Demo: Beispiel-Postfach + skriptgesteuertes Fake-LLM, eigene Demo-Datenbank.
+#   python -m src.main --config config/demo.yaml crawl
+# Nicht genannte Werte kommen aus den Code-Defaults (identisch mit config/settings.yaml).
+
+environment: development
+
+database:
+  url: sqlite:///data/demo/agent.db
+
+logging:
+  level: WARNING
+  format: text
+
+sources:
+  email:
+    mailbox_dir: examples/demo/inbox
+
+llm:
+  provider: fake
+  model: fake-model
+  fake_responses_file: examples/demo/fake_llm_responses.json
+
+report:
+  output_dir: data/demo/reports
+
+mail:
+  mode: dry_run
+  outbox_dir: data/demo/outbox
+  recipients: [ich@example.org]

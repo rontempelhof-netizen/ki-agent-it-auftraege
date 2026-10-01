@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ report.title }} – Lauf {{ report.run_id }}</title>
+<style>
+  body { margin: 0; padding: 16px; background: #f3f4f6; font-family: Arial, Helvetica, sans-serif; color: #1f2937; font-size: 14px; line-height: 1.45; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px 20px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  h3 { font-size: 13px; margin: 14px 0 4px; color: #374151; text-transform: uppercase; letter-spacing: .03em; }
+  .muted { color: #6b7280; font-size: 12px; }
+  table.kv { border-collapse: collapse; width: 100%; }
+  table.kv td { padding: 3px 8px 3px 0; vertical-align: top; }
+  table.kv td.k { color: #6b7280; width: 170px; white-space: nowrap; }
+  table.stats td { padding: 2px 16px 2px 0; }
+  .num { font-weight: bold; text-align: right; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: bold; color: #fff; font-size: 13px; }
+  .badge-A { background: #15803d; }
+  .badge-B { background: #2563eb; }
+  .badge-C { background: #a16207; }
+  .badge-REJECT { background: #6b7280; }
+  .score { font-size: 13px; font-weight: bold; margin-left: 6px; }
+  ul { margin: 0; padding-left: 20px; }
+  .outreach { white-space: pre-wrap; background: #f9fafb; border-left: 3px solid #d1d5db; padding: 8px 10px; }
+  .warn { color: #92400e; }
+  .err { color: #b91c1c; }
+  a { color: #1d4ed8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="card">
+  <h1>{{ report.title }}</h1>
+  <div class="muted">
+    Lauf #{{ report.run_id }} · gestartet {{ report.run_started_at | dt }}
+    {%- if report.run_finished_at %} · beendet {{ report.run_finished_at | dt }}{% endif %}
+    · Status {{ report.run_status }} · erstellt {{ report.generated_at | dt }}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Übersicht</h2>
+  <table class="stats">
+    <tr><td>Gelesene Mails</td><td class="num">{{ s.mails_read }}</td>
+        <td>Neue Kandidaten</td><td class="num">{{ s.candidates_new }}</td></tr>
+    <tr><td>Doppelte Mails</td><td class="num">{{ s.mail_duplicates }}</td>
+        <td>Duplikate (bekannte Leads)</td><td class="num">{{ s.duplicates }}</td></tr>
+    <tr><td>Prefilter-Rejects</td><td class="num">{{ s.prefiltered }}</td>
+        <td>LLM-Analysen</td><td class="num">{{ s.llm_analyses }}{% if s.llm_failures %} ({{ s.llm_failures }} fehlgeschlagen){% endif %}</td></tr>
+    <tr><td>Ausstehende Analysen</td><td class="num">{{ s.pending_total }}</td>
+        <td>LLM-Kosten (geschätzt)</td><td class="num">{% if report.llm_cost_usd is not none %}{{ "%.4f" | format(report.llm_cost_usd) }} USD{% else %}–{% endif %}</td></tr>
+  </table>
+  <p style="margin:10px 0 0">
+    <span class="badge badge-A">A {{ report.class_counts.A }}</span>
+    <span class="badge badge-B">B {{ report.class_counts.B }}</span>
+    <span class="badge badge-C">C {{ report.class_counts.C }}</span>
+    <span class="badge badge-REJECT">Reject {{ report.class_counts.REJECT }}</span>
+  </p>
+  {% if report.class_counts.C or report.class_counts.REJECT %}
+  <p class="muted">C- und Reject-Leads sind gespeichert, werden aber nicht einzeln dargestellt.</p>
+  {% endif %}
+</div>
+
+{% if report.errors or report.warnings %}
+<div class="card">
+  <h2>Quellenfehler und Warnungen</h2>
+  {% if report.errors %}<ul>{% for e in report.errors %}<li class="err">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  {% if report.warnings %}<ul>{% for w in report.warnings %}<li class="warn">{{ w }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}
+
+{% if not report.leads %}
+<div class="card"><p>Keine neuen A- oder B-Leads in diesem Lauf.</p></div>
+{% endif %}
+
+{% for lead in report.leads %}
+<div class="card lead lead-{{ lead.lead_class.value }}" id="lead-{{ lead.id }}">
+  <div><span class="badge badge-{{ lead.lead_class.value }}">{{ lead.lead_class.value }}</span><span class="score">{{ lead.score }} / 100</span></div>
+  <h2 style="margin-top:8px">{% if lead.url %}<a href="{{ lead.url }}">{{ lead.title }}</a>{% else %}{{ lead.title }}{% endif %}</h2>
+  <table class="kv">
+    <tr><td class="k">Auftraggeber</td><td>{{ lead.customer }}</td></tr>
+    <tr><td class="k">Quelle</td><td>{{ lead.source }}</td></tr>
+    <tr><td class="k">Kategorie</td><td>{{ lead.category }}</td></tr>
+    <tr><td class="k">Remote/Standort</td><td>{{ lead.work_mode }}</td></tr>
+    <tr><td class="k">Budget</td><td>{{ lead.budget }}</td></tr>
+    <tr><td class="k">Geschätzter Aufwand</td><td>{{ lead.effort }}</td></tr>
+  </table>
+
+  <h3>Kurzfassung</h3>
+  <p style="margin:0">{{ lead.summary or "–" }}</p>
+
+  <h3>Warum passt der Auftrag zu uns?</h3>
+  <p style="margin:0">{{ lead.fit_reason or "–" }}</p>
+
+  <h3>Muss-Anforderungen</h3>
+  {% if lead.must_haves %}<ul>{% for m in lead.must_haves %}<li>{{ m }}</li>{% endfor %}</ul>{% else %}<p style="margin:0">keine genannt</p>{% endif %}
+
+  <h3>Risiken</h3>
+  {% if lead.risks %}<ul>{% for r in lead.risks %}<li>{{ r }}</li>{% endfor %}</ul>{% else %}<p style="margin:0">keine erkannt</p>{% endif %}
+
+  <h3>Offene Fragen</h3>
+  {% if lead.open_questions %}<ul>{% for q in lead.open_questions %}<li>{{ q }}</li>{% endfor %}</ul>{% else %}<p style="margin:0">–</p>{% endif %}
+
+  <h3>Empfohlener nächster Schritt</h3>
+  <p style="margin:0">{{ lead.next_step or "–" }}</p>
+
+  <h3>Vorbereitete Erstansprache <span class="muted">(Entwurf, wird nicht automatisch versendet)</span></h3>
+  {% if lead.outreach %}<div class="outreach">{{ lead.outreach }}</div>{% else %}<p style="margin:0">–</p>{% endif %}
+
+  <p style="margin:14px 0 0">{% if lead.url %}<a href="{{ lead.url }}">Original-Ausschreibung öffnen</a>{% else %}<span class="muted">Kein Original-Link vorhanden</span>{% endif %}</p>
+</div>
+{% endfor %}
+
+<p class="muted" style="text-align:center">Automatisch erstellt vom KI-Agenten für IT-Aufträge. Es wurden keine Kunden kontaktiert.</p>
+</div>
+</body>
+</html>

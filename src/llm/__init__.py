@@ -14,6 +14,8 @@ from src.llm.service import AnalysisFailedError, AnalysisResult, LeadAnalysisSer
 
 def create_provider(settings: LLMSettings) -> LLMProvider:
     if settings.provider == "fake":
+        if settings.fake_responses_file:
+            return FakeLLMProvider.from_responses_file(settings.fake_responses_file)
         return FakeLLMProvider(model="fake-model")
     from src.llm.anthropic_provider import AnthropicProvider  # lazy: SDK nur bei Bedarf laden
 

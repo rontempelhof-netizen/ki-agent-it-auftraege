@@ -35,6 +35,8 @@ class LeadRow(Base):
         UniqueConstraint("source", "source_id"),
         Index(None, "lead_class", "score_total"),
         Index(None, "status"),
+        Index(None, "processing_status"),
+        Index(None, "source_url"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -45,6 +47,7 @@ class LeadRow(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    last_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utc_now, onupdate=utc_now)
 
     category: Mapped[str | None] = mapped_column(String(32))
@@ -67,7 +70,7 @@ class LeadRow(Base):
     hard_fail: Mapped[bool] = mapped_column(Boolean, default=False)
     hard_fail_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
     score_total: Mapped[int] = mapped_column(Integer, default=0)
-    lead_class: Mapped[str] = mapped_column(String(8))
+    lead_class: Mapped[str | None] = mapped_column(String(8))
 
     summary: Mapped[str | None] = mapped_column(Text)
     fit_reason: Mapped[str | None] = mapped_column(Text)
@@ -80,6 +83,10 @@ class LeadRow(Base):
     prompt_version: Mapped[str | None] = mapped_column(String(64))
     llm_model: Mapped[str | None] = mapped_column(String(64))
     analysis: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    processing_status: Mapped[str] = mapped_column(String(32))
+    processing_error: Mapped[str | None] = mapped_column(Text)
+    analysis_failures: Mapped[int] = mapped_column(Integer, default=0)
+    processed_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id", ondelete="SET NULL"), index=True)
 
     score_details: Mapped[list[LeadScoreDetailRow]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="LeadScoreDetailRow.id"
@@ -135,6 +142,7 @@ class CrawlRunRow(Base):
     items_rejected: Mapped[int] = mapped_column(Integer, default=0)
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     error_message: Mapped[str | None] = mapped_column(Text)
+    stats: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
 
 
 class ProcessedEmailRow(Base):

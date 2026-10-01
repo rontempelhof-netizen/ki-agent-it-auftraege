@@ -173,3 +173,19 @@ def test_api_key_is_not_part_of_configuration():
 
     dumped = Settings().model_dump_json().lower()
     assert "api_key" not in dumped and "sk-ant" not in dumped
+
+
+@pytest.mark.parametrize("section", ["pipeline", "prefilter", "report", "mail"])
+def test_repository_config_matches_task05_defaults(section):
+    from src.config import Settings
+
+    assert getattr(load_settings(config_file=REPO_CONFIG, env_file=None), section) == getattr(Settings.model_construct(), section)
+
+
+def test_smtp_password_only_from_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_MAIL__SMTP_PASSWORD", "aus-env")
+
+    mail = load_settings(config_file=REPO_CONFIG, env_file=None).mail
+
+    assert mail.smtp_password.get_secret_value() == "aus-env"
+    assert "smtp_password:" not in REPO_CONFIG.read_text(encoding="utf-8")  # nie in YAML

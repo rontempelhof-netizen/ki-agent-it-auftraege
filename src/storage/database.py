@@ -21,7 +21,7 @@ from src.config import DatabaseSettings
 from src.storage.base import Base
 from src.storage.orm import AppMeta
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 logger = logging.getLogger(__name__)
 
@@ -88,16 +88,18 @@ def get_schema_version(engine: Engine) -> str | None:
 
 
 def _verify_columns(engine: Engine) -> None:
-    """Erkennt Spalten, die ``create_all`` in bestehenden Tabellen nicht nachrüstet."""
+    """Erkennt Spalten- und NULL-Änderungen, die ``create_all`` nicht nachrüstet."""
     inspector = inspect(engine)
-    missing = [
-        f"{table.name}.{column.name}"
-        for table in Base.metadata.sorted_tables
-        for column in table.columns
-        if column.name not in {c["name"] for c in inspector.get_columns(table.name)}
-    ]
-    if missing:
+    problems: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        existing = {c["name"]: c for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name not in existing:
+                problems.append(f"fehlende Spalte {table.name}.{column.name}")
+            elif column.nullable and not existing[column.name]["nullable"] and not column.primary_key:
+                problems.append(f"{table.name}.{column.name} muss NULL erlauben")
+    if problems:
         raise SchemaMismatchError(
-            "Datenbankschema veraltet, fehlende Spalten: " + ", ".join(missing)
+            "Datenbankschema veraltet: " + ", ".join(problems)
             + ". Datenbank neu anlegen oder Migration durchführen."
         )
