@@ -166,11 +166,13 @@ def _default_email_profiles() -> list[EmailSourceProfile]:
         EmailSourceProfile(
             name="freelancermap",
             sender_patterns=[r"@(mail\.)?freelancermap\.(de|com|at|ch)$"],
-            project_url_patterns=[r"^https?://(www\.)?freelancermap\.(de|com|at|ch)/projekt/[^/?#]+"],
-            project_id_pattern=r"-(\d+)(?:[/?#]|$)",
+            project_url_patterns=[
+                r"^https?://(www\.)?freelancermap\.(de|com|at|ch)/(?:projekt/[^/?#]+|nproj/\d+\.html)"
+            ],
+            project_id_pattern=r"(?:/nproj/|-)(\d+)(?:\.html|[/?#]|$)",
             html_layout="link_start",
             text_layout="link_start",
-            footer_markers=[r"Sie erhalten diese E-Mail"],
+            footer_markers=[r"Sie erhalten diese E-Mail", r"Sie erhalten diese Vorschläge"],
         ),
         EmailSourceProfile(
             name="freelance.de",
@@ -179,8 +181,20 @@ def _default_email_profiles() -> list[EmailSourceProfile]:
             project_id_pattern=r"projekt-(\d+)",
             html_layout="link_start",
             text_layout="link_end",
-            content_start_markers=[r"Projekte? gefunden[^\n]*\n"],
-            footer_markers=[r"Projektalarm verwalten"],
+            content_start_markers=[r"Projekte? gefunden[^\n]*\n", r"Projekte für Sie zusammengestellt:"],
+            footer_markers=[r"Projektalarm verwalten", r"Einstellungen Ihres Suchagenten"],
+        ),
+        EmailSourceProfile(
+            name="gulp",
+            sender_patterns=[r"@randstad\.de$"],
+            subject_patterns=[r"Neue Projekte für Ihre Suche"],
+            project_url_patterns=[
+                r"^https?://(www\.)?gulp\.de/gulp2/g/projekte/(?:talentfinder|agentur)/[^/?#]+"
+            ],
+            project_id_pattern=r"/projekte/(?:talentfinder|agentur)/([^/?#]+)",
+            html_layout="link_start",
+            text_layout="link_start",
+            footer_markers=[r"Über Randstad Professional"],
         ),
     ]
 
@@ -200,6 +214,7 @@ class EmailSourceSettings(BaseModel):
         "mehr",
         "jetzt bewerben",
         "view project",
+        "weiter zum projekt",
     ]
     """Linktexte, die nicht als Projekttitel taugen (case-insensitiv)."""
     profiles: list[EmailSourceProfile] = Field(default_factory=_default_email_profiles)
