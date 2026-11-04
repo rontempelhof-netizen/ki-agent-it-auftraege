@@ -61,17 +61,16 @@ def authorize_gmail(settings: GmailSettings) -> None:
 
 def build_gmail_service(settings: GmailSettings) -> Any:
     """Load previously authorized read-only credentials (no browser prompt)."""
-    _require_google_libraries()
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-
     token_file = settings.token_file
     if not token_file.is_file():
         raise SourceError(
             f"Gmail ist noch nicht autorisiert: {token_file}. "
             "Einmalig lokal 'python -m src.main gmail-auth' ausführen."
         )
+    _require_google_libraries()
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
     credentials = Credentials.from_authorized_user_file(
         str(token_file), scopes=[GMAIL_READONLY_SCOPE]
     )
