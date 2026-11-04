@@ -15,6 +15,7 @@ from src.config import ConfigError, Settings, load_settings
 from src.domain.enums import CrawlRunStatus
 from src.logging_setup import configure_logging
 from src.storage.database import SchemaMismatchError, create_db_engine, create_session_factory, init_db
+from src.sources.base import SourceError
 
 logger = logging.getLogger("src.main")
 
@@ -35,6 +36,8 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.add_parser("show-config", help="Wirksame Konfiguration als JSON ausgeben")
     subparsers.add_parser("init-db", help="SQLite-Datenbank initialisieren (idempotent)")
+    subparsers.add_parser("gmail-auth", help="Einmalige lokale Gmail-OAuth-Freigabe (nur lesen)")
+    subparsers.add_parser("gmail-check", help="Gmail-Label und Lesezugriff prüfen, ohne Änderungen")
 
     crawl = subparsers.add_parser("crawl", help="Quellen lesen, analysieren, bewerten, speichern, Report erzeugen")
     crawl.add_argument("--source", help="Nur diese Quelle (Connector-Name, z. B. email)")
@@ -149,9 +152,35 @@ def _cmd_test_mail(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_gmail_auth(settings: Settings, _args: argparse.Namespace) -> int:
+    from src.sources.email.gmail_mailbox import authorize_gmail
+
+    authorize_gmail(settings.sources.email.gmail)
+    print("Gmail-Freigabe gespeichert (Nur-Lese-Berechtigung).")
+    return EXIT_OK
+
+
+def _cmd_gmail_check(settings: Settings, _args: argparse.Namespace) -> int:
+    from src.sources.email.gmail_mailbox import GmailMailbox
+
+    mailbox = GmailMailbox(settings.sources.email.gmail)
+    message = next(mailbox.iter_messages(), None)
+    if message is None:
+        print(f"Gmail-Label '{settings.sources.email.gmail.label}' erreichbar, keine Nachrichten gefunden.")
+    else:
+        print(
+            f"Gmail-Label '{settings.sources.email.gmail.label}' erreichbar; "
+            f"erste Nachricht lesbar ({len(message.raw)} Bytes, ID {message.ref})."
+        )
+    print("Keine Nachrichten verändert.")
+    return EXIT_OK
+
+
 COMMANDS = {
     "show-config": _cmd_show_config,
     "init-db": _cmd_init_db,
+    "gmail-auth": _cmd_gmail_auth,
+    "gmail-check": _cmd_gmail_check,
     "crawl": _cmd_crawl,
     "report": _cmd_report,
     "test-mail": _cmd_test_mail,
@@ -180,6 +209,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return COMMANDS[args.command](settings, args)
     except SchemaMismatchError as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    except SourceError as exc:
+        print(f"Gmail-/Quellenfehler: {exc}", file=sys.stderr)
         return EXIT_ERROR
     except ValueError as exc:  # z. B. unbekannte Quelle
         print(f"Fehler: {exc}", file=sys.stderr)
