@@ -7,6 +7,8 @@ Wiederholungen steuert der ``LeadAnalysisService``, daher ``max_retries=0`` im S
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 import anthropic
@@ -27,6 +29,35 @@ from src.llm.provider import (
 )
 
 REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+MAX_STRUCTURED_UNION_PARAMETERS = 16
+logger = logging.getLogger(__name__)
+
+
+def _union_parameter_count(node: Any) -> int:
+    """Count anyOf/type-array schema nodes that consume Claude grammar budget."""
+    if isinstance(node, list):
+        return sum(_union_parameter_count(item) for item in node)
+    if not isinstance(node, dict):
+        return 0
+    is_union = isinstance(node.get("type"), list) or "anyOf" in node
+    return int(is_union) + sum(_union_parameter_count(value) for value in node.values())
+
+
+def _unconstrained_json_system_prompt(system: str, schema: dict[str, Any]) -> str:
+    """Give the model the full schema when API-enforced JSON is too complex.
+
+    The existing local Pydantic validation and grounding stay mandatory.
+    """
+    return (
+        system
+        + "\n\n## Verbindliches JSON-Antwortformat\n"
+        + "Antworte mit genau EINEM JSON-Objekt ohne Markdown, Kommentare oder Zusatztext. "
+        + "Verwende alle im Schema genannten Felder. Wenn eine Information unbekannt ist, "
+        + "verwende null bzw. [] entsprechend dem Schema. "
+        + "Das JSON muss dem folgenden Schema entsprechen (keine weiteren Felder):\n"
+        + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    )
+
 
 
 class AnthropicProvider(LLMProvider):
@@ -42,15 +73,27 @@ class AnthropicProvider(LLMProvider):
         return self._settings.model
 
     def complete(self, request: LLMRequest) -> LLMResponse:
+        union_count = _union_parameter_count(request.json_schema)
+        use_structured_output = union_count <= MAX_STRUCTURED_UNION_PARAMETERS
+        output_config: dict[str, Any] = {"effort": self._settings.effort}
+        system_prompt = request.system
+        if use_structured_output:
+            output_config["format"] = {"type": "json_schema", "schema": request.json_schema}
+        else:
+            # The API rejects this schema before inference. Preserve all nullable
+            # fields rather than silently deleting unknown values or merging facts.
+            # Local strict Pydantic validation and grounding are unchanged.
+            logger.warning(
+                "anthropic_structured_output_unavailable",
+                extra={"union_parameters": union_count, "limit": MAX_STRUCTURED_UNION_PARAMETERS},
+            )
+            system_prompt = _unconstrained_json_system_prompt(request.system, request.json_schema)
         params: dict[str, Any] = {
             "model": self._settings.model,
             "max_tokens": request.max_output_tokens,
-            "system": request.system,
+            "system": system_prompt,
             "messages": [{"role": "user", "content": request.user}],
-            "output_config": {
-                "effort": self._settings.effort,
-                "format": {"type": "json_schema", "schema": request.json_schema},
-            },
+            "output_config": output_config,
         }
         try:
             if self._settings.refusal_fallback:
