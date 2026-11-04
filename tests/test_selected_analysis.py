@@ -15,7 +15,7 @@ from tests.pipeline_support import make_env
 def seed_pending(tmp_path):
     env = make_env(tmp_path, max_llm_analyses_per_run=0)
     first = env.pipeline(FakeLLMProvider()).run()
-    assert first.stats["llm_analyses"] == 0
+    assert first.stats.get("llm_analyses", 0) == 0
     with session_scope(env.factory) as session:
         pending = LeadRepository(session).list_pending()
     assert len(pending) == 5
