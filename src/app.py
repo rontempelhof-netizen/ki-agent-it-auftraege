@@ -36,10 +36,16 @@ def create_connectors(settings: Settings, session_factory: sessionmaker[Session]
     connectors: list[SourceConnector] = []
     email = settings.sources.email
     if email.enabled:
+        if email.backend == "gmail":
+            from src.sources.email.gmail_mailbox import GmailMailbox
+
+            mailbox = GmailMailbox(email.gmail)
+        else:
+            mailbox = EmlDirectoryMailbox(email.mailbox_dir)
         connectors.append(
             EmailSourceConnector(
                 email,
-                EmlDirectoryMailbox(email.mailbox_dir),
+                mailbox,
                 ScopedProcessedEmailStore(session_factory),
                 clock=clock,
             )
