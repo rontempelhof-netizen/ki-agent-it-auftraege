@@ -6,7 +6,8 @@ in SQLite speichert und die besten neuen Leads per HTML-E-Mail meldet.
 > Stand: **Task 05 – End-to-End-Vertical-Slice.** Projektmails werden eingelesen, normalisiert,
 > dedupliziert, vorgefiltert, per LLM analysiert, deterministisch bewertet, in SQLite gespeichert
 > und als HTML-Tagesreport ausgegeben (Versand im Dry-Run oder per SMTP). Produktive
-> IMAP-/Gmail-Anbindung und echte LLM-Aufrufe sind konfigurierbar, aber noch nicht im Betrieb erprobt.
+> Gmail wird nun durch einen rein lesenden API-Adapter unterstützt; für Live-Läufe
+> ist eine lokale OAuth-Freigabe nötig. Echte LLM-Aufrufe sind noch nicht im Betrieb erprobt.
 
 ## Voraussetzungen
 
@@ -55,6 +56,19 @@ python -m src.main test-mail --to ich@example.org   # Test-Mail (Standard: Dry-R
 
 Exit-Codes: `0` Erfolg, `1` teilweise erfolgreich (z. B. eine Quelle fehlerhaft), `2` Fehler.
 Standardmäßig liegen Datenbank, Reports und Dry-Run-Mails unter `data/` (git-ignoriert).
+
+
+## Gmail API (rein lesend)
+
+Neben dem unveränderten Offline-Postfach (backend: eml) unterstützt der Agent
+nun eine **Gmail-Nur-Lese-Quelle** (backend: gmail). Sie liest das Label
+**E01/Projekt-Suchagenten** über die Gmail API, verwendet die vorhandene
+SQLite-Deduplizierung und setzt eine **einmalige lokale Google-OAuth-Freigabe**
+voraus. Die bereits in ChatGPT verbundene Gmail-App überträgt ihre
+Zugangsdaten nicht in das Python-Projekt.
+
+Die Einrichtung inklusive Windows-PowerShell-Befehlen steht in
+**[docs/gmail-setup.md](docs/gmail-setup.md)**.
 
 ## Demo (offline, ohne API-Key)
 
@@ -169,9 +183,9 @@ normalisieren, bewerten und speichern nichts.
 
 Der `EmailSourceConnector` (`src/sources/email/`) verarbeitet Projektbenachrichtigungen:
 
-1. **Postfach** (`mailbox.py`): derzeit offline ein Verzeichnis mit `.eml`-Dateien
-   (`sources.email.mailbox_dir`, Standard `data/inbox`). Eine IMAP/Gmail-Anbindung
-   implementiert später dasselbe `Mailbox`-Protokoll.
+1. **Postfach** (`mailbox.py`, `gmail_mailbox.py`): Offline-Verzeichnis mit `.eml`-Dateien
+   (`sources.email.mailbox_dir`) oder die Gmail API mit lokal autorisiertem OAuth-Token
+   (`backend: gmail`, Scope `gmail.readonly`). Siehe `docs/gmail-setup.md`.
 2. **Parsen** (`parser.py`): Absender, Betreff, Datum, Text- und HTML-Teil; defekte Header,
    unbekannte Zeichensätze oder abgeschnittene Multipart-Mails werden als Warnung gemeldet.
 3. **Deduplizierung**: über Message-ID (sonst Inhalts-Hash) innerhalb eines Laufs und über
