@@ -41,6 +41,14 @@ def _build_parser() -> argparse.ArgumentParser:
     dup = subparsers.add_parser("duplicate-check", help="Plattformübergreifende Dublettenverdachte prüfen (nur lesen)")
     dup.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal angezeigte Titelgruppen (Standard: 20)")
 
+    pending = subparsers.add_parser("pending-leads", help="Ausstehende Projekte ohne LLM-Kosten anzeigen")
+    pending.add_argument("--search", metavar="TEXT", help="Suchtext in Titel oder Beschreibung")
+    pending.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal 100 Einträge (Standard: 20)")
+
+    selected = subparsers.add_parser("analyze-lead", help="Nur einen gewählten Pending-Lead analysieren (kein Gmail-Abruf)")
+    selected.add_argument("--id", type=int, required=True, metavar="ID", help="Lead-ID aus pending-leads")
+    selected.add_argument("--fake-llm", action="store_true", help="Simulation statt kostenpflichtigem API-Aufruf")
+
     crawl = subparsers.add_parser("crawl", help="Quellen lesen, analysieren, bewerten, speichern, Report erzeugen")
     crawl.add_argument("--source", help="Nur diese Quelle (Connector-Name, z. B. email)")
     crawl.add_argument("--fake-llm", action="store_true", help="Fake-LLM statt echtem Provider (keine API-Kosten)")
@@ -154,6 +162,87 @@ def _cmd_test_mail(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _one_line(value: str | None, max_chars: int = 140) -> str:
+    """Verhindert Zeilenumbrüche und Steuerzeichen aus fremden Ausschreibungstexten."""
+    clean = " ".join("".join(char if char.isprintable() else " " for char in (value or "")).split())
+    return clean[:max_chars] + ("…" if len(clean) > max_chars else "")
+
+
+def _cmd_pending_leads(settings: Settings, args: argparse.Namespace) -> int:
+    from src.storage.repository import LeadRepository
+
+    if not 1 <= args.limit <= 100:
+        print("Fehler: --limit muss zwischen 1 und 100 liegen.", file=sys.stderr)
+        return EXIT_ERROR
+    search = (args.search or "").strip()
+    if args.search is not None and not search:
+        print("Fehler: --search darf nicht leer sein.", file=sys.stderr)
+        return EXIT_ERROR
+    engine, factory = _prepare_db(settings)
+    try:
+        with factory() as session:
+            leads = LeadRepository(session).list_pending(limit=args.limit, search=search or None)
+    finally:
+        engine.dispose()
+    if not leads:
+        print("Keine passenden ausstehenden Projekte gefunden.")
+        return EXIT_OK
+    for lead in leads:
+        print(f"Lead #{lead.id} | {lead.source} | {_one_line(lead.title, 110)}")
+        if lead.description:
+            print(f"  {_one_line(lead.description, 180)}")
+    print(f"{len(leads)} ausstehende Projekte angezeigt (nur lesen, keine API-Anfrage).")
+    return EXIT_OK
+
+
+def _cmd_analyze_lead(settings: Settings, args: argparse.Namespace) -> int:
+    from src.app import build_pipeline
+    from src.domain.enums import ProcessingStatus
+    from src.llm import FakeLLMProvider, create_provider
+    from src.storage.repository import LeadRepository
+
+    if args.id < 1:
+        print("Fehler: --id muss eine positive ganze Zahl sein.", file=sys.stderr)
+        return EXIT_ERROR
+    settings = settings.model_copy(
+        update={"pipeline": settings.pipeline.model_copy(update={"max_llm_analyses_per_run": 1})}
+    )
+    engine, factory = _prepare_db(settings)
+    try:
+        with factory() as session:
+            existing = LeadRepository(session).get(args.id)
+        if existing is None:
+            print(f"Fehler: Lead #{args.id} existiert nicht.", file=sys.stderr)
+            return EXIT_ERROR
+        if existing.processing_status != ProcessingStatus.PENDING_ANALYSIS:
+            print(f"Fehler: Lead #{args.id} ist nicht ausstehend ({existing.processing_status.value}).", file=sys.stderr)
+            return EXIT_ERROR
+        provider = FakeLLMProvider() if args.fake_llm else create_provider(settings.llm)
+        pipeline = build_pipeline(settings, factory, provider=provider, connectors=[], acknowledge=False)
+        summary = pipeline.run_selected(args.id)
+        with factory() as session:
+            lead = LeadRepository(session).get(args.id)
+        assert lead is not None
+        print(f"Lead #{args.id}: {_one_line(lead.title)}")
+        print(f"Status: {lead.processing_status.value} | Klasse: {lead.lead_class.value if lead.lead_class else '-'} "
+              f"| Score: {lead.score_total if lead.lead_class else '-'}")
+        if lead.summary:
+            print(f"Zusammenfassung: {_one_line(lead.summary, 1000)}")
+        if lead.fit_reason:
+            print(f"Passung: {_one_line(lead.fit_reason, 1000)}")
+        if lead.hard_fail_reasons:
+            print("Ausschlüsse: " + "; ".join(_one_line(reason, 160) for reason in lead.hard_fail_reasons))
+        if lead.processing_error:
+            print(f"Analysefehler: {_one_line(lead.processing_error, 300)}")
+        cost = summary.stats.get("llm_cost_microusd", 0) / 1_000_000
+        print(f"Lauf #{summary.run_id}: LLM {summary.stats.get('llm_analyses', 0)} | "
+              f"Fehler {summary.stats.get('llm_failures', 0)} | geschätzte API-Kosten {cost:.4f} USD")
+        print("Keine E-Mails gelesen oder versendet; keine anderen Leads analysiert.")
+        return EXIT_PARTIAL if summary.stats.get("llm_failures") or summary.errors else EXIT_OK
+    finally:
+        engine.dispose()
+
+
 def _cmd_duplicate_check(settings: Settings, args: argparse.Namespace) -> int:
     """Findet exakt gleiche normalisierte Titel auf unterschiedlichen Plattformen.
 
@@ -228,6 +317,8 @@ COMMANDS = {
     "gmail-auth": _cmd_gmail_auth,
     "gmail-check": _cmd_gmail_check,
     "duplicate-check": _cmd_duplicate_check,
+    "pending-leads": _cmd_pending_leads,
+    "analyze-lead": _cmd_analyze_lead,
     "crawl": _cmd_crawl,
     "report": _cmd_report,
     "test-mail": _cmd_test_mail,

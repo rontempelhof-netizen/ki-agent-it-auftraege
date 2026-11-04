@@ -111,13 +111,50 @@ class Pipeline:
 
         return self._finish(state, started, source)
 
+    def run_selected(self, lead_id: int) -> RunSummary:
+        """Analysiert nur einen explizit ausgewählten, ausstehenden Lead.
+
+        Keine Connectoren, kein Gmail-Abruf, keine anderen Pending-Leads. Vor der
+        Anlage eines Laufs wird die ID auf Gültigkeit und Status geprüft, damit
+        fehlende oder bereits analysierte Leads keine API-Aufrufe auslösen.
+        """
+        if lead_id < 1:
+            raise ValueError("Lead-ID muss eine positive ganze Zahl sein.")
+        if self._settings.max_llm_analyses_per_run < 1:
+            raise ValueError("Für eine gezielte Analyse muss das LLM-Limit mindestens 1 sein.")
+        with session_scope(self._session_factory) as session:
+            lead = LeadRepository(session).get(lead_id)
+        if lead is None:
+            raise ValueError(f"Lead #{lead_id} nicht gefunden.")
+        if lead.processing_status != ProcessingStatus.PENDING_ANALYSIS:
+            raise ValueError(
+                f"Lead #{lead_id} ist nicht ausstehend (Status: {lead.processing_status.value}). "
+                "Bereits analysierte bzw. ausgeschlossene Leads werden nicht erneut kostenpflichtig verarbeitet."
+            )
+
+        started = self._clock()
+        source = f"selected-lead:{lead_id}"
+        with session_scope(self._session_factory) as session:
+            run_id = CrawlRunRepository(session).add(CrawlRun(source=source, started_at=started)).id
+        assert run_id is not None
+        state = _RunState(run_id, llm_budget=1)
+        logger.info("selected_analysis_started", extra={"run_id": run_id, "lead_id": lead_id})
+        self._resume_leads(state, [lead])
+        return self._finish(state, started, source)
+
     def _process_pending(self, state: _RunState) -> None:
         """Ausstehende Analysen früherer Läufe zuerst (älteste zuerst, im Rahmen des LLM-Limits)."""
         if state.llm_budget <= 0:
             return
         with session_scope(self._session_factory) as session:
             pending = LeadRepository(session).list_pending(limit=state.llm_budget)
-        for lead in pending:
+        self._resume_leads(state, pending)
+
+    def _resume_leads(self, state: _RunState, leads: Sequence[Lead]) -> None:
+        """Gemeinsame Persistenz- und Bewertungslogik für Warteschlange und Einzelauswahl."""
+        for lead in leads:
+            if state.llm_budget <= 0:
+                break
             assert lead.id is not None
             state.stats["pending_resumed"] += 1
             updated = self._analyze(lead.to_candidate(), state, failures=lead.analysis_failures)

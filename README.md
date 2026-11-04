@@ -58,6 +58,41 @@ Exit-Codes: `0` Erfolg, `1` teilweise erfolgreich (z. B. eine Quelle fehlerhaft)
 Standardmäßig liegen Datenbank, Reports und Dry-Run-Mails unter `data/` (git-ignoriert).
 
 
+## Fachliche Kalibrierung: einzelne Projekte gezielt bewerten
+
+Bei vielen eingelesenen Projektalarmen arbeitet der reguläre Crawl die
+ausstehenden Projekte chronologisch ab. Für bewusst ausgewählte Testfälle
+gibt es zwei separate CLI-Befehle:
+
+```powershell
+# Ausstehende Aufträge mit DB-ID anzeigen (ohne API-Aufruf)
+python -m src.main pending-leads --limit 20
+python -m src.main pending-leads --search "Python" --limit 20
+python -m src.main pending-leads --search "Projektmanagement" --limit 20
+
+# Genau einen zuvor ausgewählten Pending-Lead analysieren
+python -m src.main analyze-lead --id 42
+
+# Gefahrloser Offline-Test statt Claude
+python -m src.main analyze-lead --id 42 --fake-llm
+```
+
+Die ID kommt aus der gerade aktiven SQLite-Datenbank
+(`AGENT_DATABASE__URL`). Der Einzellauf **liest keine Quellen und
+keine E-Mails**, versendet keine E-Mails, fasst keine anderen ausstehenden
+Leads an und erzeugt auch keinen automatischen Report. Bereits analysierte,
+vorab gefilterte und unbekannte IDs werden **vor** dem LLM-Aufruf abgelehnt.
+Jeder Befehl analysiert maximal **einen** Lead; Provider-interne Wiederholungen
+werden weiterhin durch `AGENT_LLM__MAX_ATTEMPTS` gesteuert.
+Für einen kostengedeckelten Echttest diese Variable auf `1` setzen und
+eine separate Testdatenbank verwenden.
+
+Hinweis: `--fake-llm` speichert eine simulierte Bewertung für diesen
+Lead. Für eine spätere echte Bewertung deshalb lieber eine Testdatenbank
+oder einen noch nicht analysierten Datensatz wählen. Eine Auswahl zeigt
+Titel und kurze Beschreibung, die eigentliche Analyse zeigt Klasse,
+Score, Zusammenfassung, Passung und geschätzte API-Kosten.
+
 ## Gmail API (rein lesend)
 
 Neben dem unveränderten Offline-Postfach (backend: eml) unterstützt der Agent

@@ -90,13 +90,23 @@ class LeadRepository:
         )
         return self._to_domain(row) if row else None
 
-    def list_pending(self, limit: int | None = None) -> list[Lead]:
-        """Noch nicht analysierte Leads, älteste zuerst."""
+    def list_pending(self, limit: int | None = None, search: str | None = None) -> list[Lead]:
+        """Noch nicht analysierte Leads, älteste zuerst; optionaler Freitextfilter."""
         query = (
             select(LeadRow)
             .where(LeadRow.processing_status == ProcessingStatus.PENDING_ANALYSIS.value)
             .order_by(LeadRow.first_seen_at, LeadRow.id)
         )
+        if search:
+            # Escape LIKE wildcards: Benutzer suchen nach Text, nicht nach SQL-Mustern.
+            escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            query = query.where(
+                or_(
+                    LeadRow.title.ilike(pattern, escape="\\"),
+                    LeadRow.description.ilike(pattern, escape="\\"),
+                )
+            )
         if limit is not None:
             query = query.limit(limit)
         return [self._to_domain(row) for row in self._session.scalars(query)]
