@@ -62,7 +62,13 @@ scoring:
 sources:
   email:
     enabled: true
-    mailbox_dir: data/inbox          # Offline-Postfach mit .eml-Dateien (IMAP folgt später)
+    mailbox_dir: data/inbox          # Offline-Postfach mit .eml-Dateien
+    backend: eml                     # eml | gmail, Umschalten per Environment möglich
+    gmail:
+      label: E01/Projekt-Suchagenten # Nur Nachrichten dieses Labels lesen
+      max_messages: 50              # Neueste N Nachrichten je Lauf
+      client_secret_file: data/gmail-client-secret.json
+      token_file: data/gmail-token.json
     unknown_sender_policy: skip      # skip | generic (ganze Mail als ein Eintrag)
     unknown_source_name: email_unknown
     generic_link_texts:              # Linktexte, die nicht als Projekttitel taugen
