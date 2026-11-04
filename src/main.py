@@ -38,6 +38,8 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("init-db", help="SQLite-Datenbank initialisieren (idempotent)")
     subparsers.add_parser("gmail-auth", help="Einmalige lokale Gmail-OAuth-Freigabe (nur lesen)")
     subparsers.add_parser("gmail-check", help="Gmail-Label und Lesezugriff prüfen, ohne Änderungen")
+    dup = subparsers.add_parser("duplicate-check", help="Plattformübergreifende Dublettenverdachte prüfen (nur lesen)")
+    dup.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal angezeigte Titelgruppen (Standard: 20)")
 
     crawl = subparsers.add_parser("crawl", help="Quellen lesen, analysieren, bewerten, speichern, Report erzeugen")
     crawl.add_argument("--source", help="Nur diese Quelle (Connector-Name, z. B. email)")
@@ -152,6 +154,50 @@ def _cmd_test_mail(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_duplicate_check(settings: Settings, args: argparse.Namespace) -> int:
+    """Findet exakt gleiche normalisierte Titel auf unterschiedlichen Plattformen.
+
+    Ausschließlich Bericht: keine Zusammenführung und keine Veränderung der Leads.
+    """
+    from sqlalchemy import select
+
+    from src.pipeline.duplicate_review import DuplicateEntry, find_cross_source_title_matches
+    from src.storage.orm import LeadRow
+
+    if args.limit < 1:
+        print("Fehler: --limit muss mindestens 1 sein.", file=sys.stderr)
+        return EXIT_ERROR
+
+    engine = create_db_engine(settings.database)
+    try:
+        factory = create_session_factory(engine)
+        with factory() as session:
+            entries = [
+                DuplicateEntry(lead_id, source, source_id, title, url)
+                for lead_id, source, source_id, title, url in session.execute(
+                    select(LeadRow.id, LeadRow.source, LeadRow.source_id, LeadRow.title, LeadRow.source_url)
+                )
+            ]
+    finally:
+        engine.dispose()
+
+    groups = find_cross_source_title_matches(entries)
+    print(f"Dublettenverdacht: {len(groups)} Titelgruppen auf unterschiedlichen Plattformen (nur lesen).")
+    for group in groups[:args.limit]:
+        evidence = (
+            "Gemeinsame Kennung im Titel: " + ", ".join(group.reference_hints)
+            if group.reference_hints
+            else "Gleicher Titel, Identität ungeklärt"
+        )
+        print(f"\n{group.title} | {len(group.entries)} Einträge | {evidence}")
+        for entry in group.entries:
+            print(f"  Lead #{entry.lead_id}: {entry.source} / {entry.source_id} | {entry.source_url or 'kein Link'}")
+    if len(groups) > args.limit:
+        print(f"\nWeitere {len(groups) - args.limit} Gruppen nicht angezeigt (--limit erhöhen).")
+    print("Keine Einträge verändert oder zusammengeführt.")
+    return EXIT_OK
+
+
 def _cmd_gmail_auth(settings: Settings, _args: argparse.Namespace) -> int:
     from src.sources.email.gmail_mailbox import authorize_gmail
 
@@ -181,6 +227,7 @@ COMMANDS = {
     "init-db": _cmd_init_db,
     "gmail-auth": _cmd_gmail_auth,
     "gmail-check": _cmd_gmail_check,
+    "duplicate-check": _cmd_duplicate_check,
     "crawl": _cmd_crawl,
     "report": _cmd_report,
     "test-mail": _cmd_test_mail,

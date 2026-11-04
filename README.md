@@ -70,6 +70,30 @@ Zugangsdaten nicht in das Python-Projekt.
 Die Einrichtung inklusive Windows-PowerShell-Befehlen steht in
 **[docs/gmail-setup.md](docs/gmail-setup.md)**.
 
+## Plattformübergreifende Dubletten prüfen (nur lesend)
+
+Nach dem ersten Import können mehrere Portale denselben oder ähnlich benannten
+Auftrag enthalten. Der Befehl listet Kandidaten zur **manuellen Prüfung** aus der
+bestehenden SQLite-Datenbank:
+
+
+
+    python -m src.main duplicate-check --limit 20
+
+Er vergleicht **identische Titel** nach vorsichtiger Unicode-, Groß-/Kleinschreibungs-
+und Leerzeichen-Normalisierung, aber nur wenn mindestens zwei unterschiedliche
+Plattformen vorkommen. Zahlenkennungen mit 7–10 Ziffern im gemeinsamen Titel
+(z. B. „1085053“) werden als zusätzlicher Hinweis ausgegeben, **nicht** als
+Beweis für dieselbe Ausschreibung.
+
+Auch vier gleichnamige SAP-Projekte können vier unterschiedliche Aufträge sein.
+Deshalb werden weder Datensätze automatisch zusammengeführt noch IDs, Scores,
+Auswertungsstatus, Quellvorkommen oder die SQLite-Datenbank verändert. Die
+reguläre Deduplizierung anhand identischer Quell-IDs oder Projekt-URLs bleibt
+unverändert. Ähnliche Titel mit anderen Schreibweisen werden vorerst bewusst
+nicht als identisch behandelt. Dieser Prüfbericht ist der erste Schritt vor
+einer späteren evidenzbasierten plattformübergreifenden Zusammenführung.
+
 ## Demo (offline, ohne API-Key)
 
 Das Beispielpostfach `examples/demo/inbox` enthält realistische Projektmails (freelancermap,
