@@ -199,10 +199,21 @@ def _default_email_profiles() -> list[EmailSourceProfile]:
     ]
 
 
+class GmailSettings(BaseModel):
+    """Lokale Gmail-API-Anbindung mit minimalen Nur-Lese-Rechten."""
+
+    label: str = Field("E01/Projekt-Suchagenten", min_length=1)
+    max_messages: int = Field(50, ge=1, le=5000)
+    client_secret_file: Path = Path("data/gmail-client-secret.json")
+    token_file: Path = Path("data/gmail-token.json")
+
+
 class EmailSourceSettings(BaseModel):
     enabled: bool = True
     mailbox_dir: Path = Path("data/inbox")
     """Offline-Postfach: Verzeichnis mit ``.eml``-Dateien."""
+    backend: Literal["eml", "gmail"] = "eml"
+    gmail: GmailSettings = GmailSettings()
     unknown_sender_policy: Literal["skip", "generic"] = "skip"
     """``skip``: unbekannte Absender überspringen; ``generic``: ganze Mail als ein Eintrag."""
     unknown_source_name: str = "email_unknown"
