@@ -73,24 +73,33 @@ sources:
       - mehr
       - jetzt bewerben
       - view project
+      - weiter zum projekt
     # Parserprofile; Muster sind reguläre Ausdrücke (case-insensitiv).
     # Layout link_start: Block beginnt mit dem Projektlink; link_end: Block endet mit ihm.
     profiles:
       - name: freelancermap
         sender_patterns: ['@(mail\.)?freelancermap\.(de|com|at|ch)$']
-        project_url_patterns: ['^https?://(www\.)?freelancermap\.(de|com|at|ch)/projekt/[^/?#]+']
-        project_id_pattern: '-(\d+)(?:[/?#]|$)'
+        project_url_patterns: ['^https?://(www\.)?freelancermap\.(de|com|at|ch)/(?:projekt/[^/?#]+|nproj/\d+\.html)']
+        project_id_pattern: '(?:/nproj/|-)(\d+)(?:\.html|[/?#]|$)'
         html_layout: link_start
         text_layout: link_start
-        footer_markers: ['Sie erhalten diese E-Mail']
+        footer_markers: ['Sie erhalten diese E-Mail', 'Sie erhalten diese Vorschläge']
       - name: freelance.de
         sender_patterns: ['@(mail\.)?freelance\.de$']
         project_url_patterns: ['^https?://(www\.)?freelance\.de/projekte/projekt-\d+']
         project_id_pattern: 'projekt-(\d+)'
         html_layout: link_start
         text_layout: link_end
-        content_start_markers: ['Projekte? gefunden[^\n]*\n']
-        footer_markers: ['Projektalarm verwalten']
+        content_start_markers: ['Projekte? gefunden[^\n]*\n', 'Projekte für Sie zusammengestellt:']
+        footer_markers: ['Projektalarm verwalten', 'Einstellungen Ihres Suchagenten']
+      - name: gulp
+        sender_patterns: ['@randstad\.de$']
+        subject_patterns: ['Neue Projekte für Ihre Suche']
+        project_url_patterns: ['^https?://(www\.)?gulp\.de/gulp2/g/projekte/(?:talentfinder|agentur)/[^/?#]+']
+        project_id_pattern: '/projekte/(?:talentfinder|agentur)/([^/?#]+)'
+        html_layout: link_start
+        text_layout: link_start
+        footer_markers: ['Über Randstad Professional']
 
 # LLM-Analyse. Das LLM extrahiert nur Merkmale; der Score wird deterministisch berechnet.
 # API-Key ausschließlich per Environment (ANTHROPIC_API_KEY), nie in dieser Datei.
