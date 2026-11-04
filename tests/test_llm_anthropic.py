@@ -72,7 +72,7 @@ def test_default_request_uses_regular_endpoint_without_fallback():
     assert client.beta.messages.calls == []
 
 
-def test_request_uses_structured_output_effort_and_fallback_when_enabled():
+def test_request_uses_prompt_json_effort_and_fallback_when_enabled():
     provider, client = provider_for(message(), refusal_fallback=True)
 
     provider.complete(REQUEST)
@@ -80,10 +80,11 @@ def test_request_uses_structured_output_effort_and_fallback_when_enabled():
     (call,) = client.beta.messages.calls
     assert call["model"] == "claude-opus-5-5"
     assert call["max_tokens"] == 16000
-    assert call["system"] == "SYSTEM"
+    assert call["system"].startswith("SYSTEM\n\n## Verbindliches JSON-Antwortformat")
+    assert "required_certifications" in call["system"]
     assert call["messages"] == [{"role": "user", "content": "USER"}]
     assert call["output_config"]["effort"] == "medium"
-    assert call["output_config"]["format"] == {"type": "json_schema", "schema": REQUEST.json_schema}
+    assert "format" not in call["output_config"]  # LeadAnalysis hat mehr als 16 Union-Parameter
     assert call["betas"] == [REFUSAL_FALLBACK_BETA] and call["fallbacks"] == "default"
     assert "thinking" not in call  # Opus 5.5: Thinking immer aktiv, Steuerung über effort
     assert client.messages.calls == []
