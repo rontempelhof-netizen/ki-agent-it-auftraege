@@ -317,6 +317,27 @@ Versand (`src/notify/mailer.py`): `mail.mode: dry_run` (Standard) legt die Mail 
 `mail.outbox_dir` ab. `smtp` versendet an `mail.recipients` (nur eigene Adressen); das Passwort
 ausschließlich per `AGENT_MAIL__SMTP_PASSWORD`. Es werden nie Kunden kontaktiert.
 
+### Claude-API: JSON-Schema-Komplexität
+
+Bei der ersten echten Claude-Anfrage meldete die API 400 invalid_request_error:
+Das Analyse-Schema überschreitet die Grenze von **16 Union-Parametern** (27 vorhanden).
+Dieser Fehler betrifft nicht die API-Berechtigung.
+
+Der Anthropic-Adapter erkennt das Limit nun **vor** dem API-Aufruf. Wenn das
+Schema zu komplex für das API-erzwungene JSON-Format ist, wird das **vollständige**
+Schema stattdessen als Systemanweisung übermittelt und JSON im Prompt verlangt.
+Die anschließende **strikte Pydantic-Prüfung**, die Regeln gegen erfundene Fakten,
+die kontrollierten Wiederholungen und die deterministische Bewertung bleiben
+aktiv. Einfache Schemas verwenden weiterhin die API-erzwungenen Structured
+Outputs. Im Fallback ist JSON **nicht** bereits durch die API garantiert;
+ungültige Antworten werden lokal zurückgewiesen.
+
+Für echte Tests den Lauf auf --max-llm 1 und die Zahl der Versuche mit
+AGENT_LLM__MAX_ATTEMPTS=1 begrenzen sowie eine **separate Testdatenbank**
+(AGENT_DATABASE__URL=sqlite:///data/agent-test.db) verwenden. Der API-Aufruf
+kann Kosten verursachen. Der als SUCCESS markierte Crawl kann trotzdem
+einzelne LLM-Fehler enthalten; dafür llm_call und llm_failures prüfen.
+
 ## Logging
 
 Strukturiertes Logging nach `stderr`: im Format `json` eine JSON-Zeile pro Eintrag,
