@@ -32,3 +32,8 @@ data/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# OAuth credentials/tokens must never be committed (even if moved outside data/)
+*client_secret*.json
+*credentials*.json
+*token.json
