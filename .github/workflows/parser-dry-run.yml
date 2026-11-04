@@ -1,0 +1,40 @@
+name: Parser-Tests und Offline-Dry-Run
+
+on:
+  push:
+    branches: ["fix/realmail-parser-20261104"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Run all unit/integration tests
+        run: python -m pytest -q
+      - name: Run full demo pipeline in mail dry-run mode
+        env:
+          AGENT_MAIL__MODE: dry_run
+        run: |
+          python -m src.main --config config/demo.yaml crawl --send
+          test -n "$(find data/demo/reports -name 'report-run-*.html' -print -quit)"
+          test -n "$(find data/demo/outbox -name '*.eml' -print -quit)"
+      - name: Preserve offline report for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parser-dry-run-report
+          path: |
+            data/demo/reports/
+            data/demo/outbox/
+          if-no-files-found: ignore
+          retention-days: 7
