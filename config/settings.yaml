@@ -138,6 +138,8 @@ llm:
 enrichment:
   enabled: false
   max_requests_per_run: 2
+  country: DE             # Suchland der Projektveröffentlichungen (vorher Brave-Standard US)
+  search_lang: de         # Sprache der Suchergebnisse (vorher Brave-Standard en)
   max_original_chars: 900
   search_token_budget: 2500
   max_results: 6
