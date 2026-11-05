@@ -82,9 +82,11 @@ def test_hard_fails_and_non_analyzed_leads_never_qualify():
 
     ordinary = _lead()
     assert review_advice(ordinary.model_copy(update={"processing_status": ProcessingStatus.PREFILTERED})) is None
-    # The legitimate pending Lead must have no score, classification or analysis.
-    pending = Lead.pending(ordinary.to_candidate()) if ordinary.processing_status == ProcessingStatus.PENDING_ANALYSIS else None
-    assert pending is None
+    pending = Lead.pending(make_candidate())
+    assert pending.processing_status == ProcessingStatus.PENDING_ANALYSIS
+    assert review_advice(pending) is None
+    prefiltered = Lead.prefiltered(make_candidate(), ["Festanstellung"])
+    assert review_advice(prefiltered) is None
 
 
 def test_insufficient_information_gaps_do_not_trigger_review():
