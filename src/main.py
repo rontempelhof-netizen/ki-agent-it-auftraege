@@ -51,6 +51,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     preview = subparsers.add_parser("enrich-preview", help="Recherche für Lead-ID prüfen (Brave-Abfrage, kein Claude oder Gmail)")
     preview.add_argument("--id", type=int, required=True, metavar="ID", help="Beliebige gespeicherte Lead-ID")
+    preview.add_argument("--diagnose", action="store_true",
+                         help="Suchtreffer und Ablehnungsgründe aus derselben API-Abfrage anzeigen")
 
     selected = subparsers.add_parser("analyze-lead", help="Nur einen gewählten Pending-Lead analysieren (kein Gmail-Abruf)")
     selected.add_argument("--id", type=int, required=True, metavar="ID", help="Lead-ID aus pending-leads")
@@ -288,7 +290,19 @@ def _cmd_enrich_preview(settings: Settings, args: argparse.Namespace) -> int:
         return EXIT_PARTIAL
     if match is None:
         print(f"Lead #{args.id}: Keine eindeutig zuordenbare Recherchequelle gefunden.")
-    else:
+    if args.diagnose or match is None:
+        diagnostic = enricher.last_diagnostics
+        if diagnostic is not None:
+            print(f"Diagnose: {diagnostic.outcome}; Brave lieferte {diagnostic.total_results} Treffer, "
+                  f"davon {diagnostic.checked_results} geprüft.")
+            if args.diagnose:
+                print(f"Suchanfrage: {_one_line(diagnostic.query, 220)}")
+                for n, hit in enumerate(diagnostic.candidates, start=1):
+                    print(f"  Treffer {n}: {_one_line(hit.title, 140)}")
+                    if hit.url:
+                        print(f"    URL: {_one_line(hit.url, 240)}")
+                    print(f"    Prüfung: {_one_line(hit.reason, 200)}")
+    if match is not None:
         print(f"Lead #{args.id}: Recherchequelle eindeutig genug für einen ersten Test.")
         print(f"Quelle: {_one_line(match.url, 500)}")
         print(f"Titel: {_one_line(match.title, 250)}")
