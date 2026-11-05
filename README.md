@@ -169,6 +169,26 @@ eigentliche Analyse nicht.
   Recherche-Belege ist vor Ausbau der jeweilige API-Vertrag einschließlich
   zulässiger Speicherung zu prüfen.
 
+**Trefferdiagnose:** Wenn die erste Suche keine passende Quelle liefert,
+kann das bedeuten, dass Brave keine Ergebnisse geliefert hat, die Suchquelle
+einen zu kurzen Text hat oder die Zuordnung zu streng bzw. mehrdeutig ist.
+Mit `--diagnose` zeigt der Agent in derselben Suchabfrage die Anzahl
+der Brave-Treffer, ihre Titel und URLs sowie den Ablehnungsgrund. Es gibt
+**keine zweite Suchanfrage** und keine zusätzlichen Claude-Kosten:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.main enrich-preview --id 162 --diagnose
+```
+
+Die Brave-Suche ist nun für deutschsprachige Projekte auf
+`country: DE` und `search_lang: de` voreingestellt (über
+`AGENT_ENRICHMENT__COUNTRY` und
+`AGENT_ENRICHMENT__SEARCH_LANG` änderbar).
+Die Ergebniszuordnung bleibt bewusst konservativ: Bei fünf oder mehr
+spezifischen Titelbegriffen genügt eine kürzere Fundstellenüberschrift,
+wenn mindestens 80 % der Begriffe in Titel und Suchauszügen belegt sind.
+Bei unklarer Identität bleibt der Lead unverändert.
+
 **Zuerst Trefferqualität prüfen:** Mit einer bereits gespeicherten Lead-ID lässt
 sich eine *einzelne* Brave-Recherche starten, ohne Claude, Gmail, Scoring
 oder die Datenbank aufzurufen bzw. zu verändern:
