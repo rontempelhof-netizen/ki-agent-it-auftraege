@@ -75,13 +75,20 @@ def _match_strength(candidate: LeadCandidate, title: str, snippets: str, url: st
     if not _valid_https_url(url):
         return 0.0, "ungültige URL"
     source_id = candidate.source_id
-    if source_id.isdigit() and len(source_id) >= 7 and (
-        source_id in url or source_id in title
-    ):
-        return 1.0, "gemeinsame eindeutige Projektkennung"
-
     query_terms = _terms(candidate.title)
     title_terms = _terms(title)
+    # Plattform-IDs sind nicht global eindeutig. Auch bei gleicher
+    # Nummer muss mindestens ein fachlicher Titelabgleich vorliegen,
+    # wenn der Treffer auf einer anderen Domain veröffentlicht ist.
+    original_host = urlsplit(candidate.source_url or "").hostname
+    matched_host = urlsplit(url).hostname
+    same_origin = bool(original_host and original_host == matched_host)
+    if source_id.isdigit() and len(source_id) >= 7 and (
+        source_id in url or source_id in title
+    ) and (same_origin or len(query_terms & title_terms) >= 2):
+        return 1.0, "Projektkennung mit zusätzlichem Quellabgleich"
+
+
     if len(query_terms) < 4:
         return 0.0, "Quelltitel zu unspezifisch"
     overlap_title = len(query_terms & title_terms)
