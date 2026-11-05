@@ -114,7 +114,14 @@ class BraveContextEnricher:
 
     def enrich(self, candidate: LeadCandidate) -> EnrichmentMatch | None:
         """Genau eine Suchanfrage, maximal wenige Resultate, kein direktes Scraping."""
-        search_query = f'"{candidate.title[:160]}" Freelancer Projekt'
+        # Kein exakter Gesamt-Titel: Erstveröffentlicher formulieren häufig
+        # anders als die Plattformen, die ihre Projektalarme verschicken.
+        search_terms: list[str] = []
+        for word in _TOKEN.findall(candidate.title):
+            normalized = word.casefold()
+            if len(normalized) >= 4 and normalized not in _STOPWORDS and normalized not in search_terms:
+                search_terms.append(normalized)
+        search_query = " ".join(search_terms[:8])[:180] + " Projekt Freelancer"
         query = urlencode({
             "q": search_query,
             "maximum_number_of_tokens": self._settings.search_token_budget,
