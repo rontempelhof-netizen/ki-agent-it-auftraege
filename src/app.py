@@ -17,6 +17,7 @@ from src.config import Settings
 from src.llm import LeadAnalysisService, LLMProvider, create_provider
 from src.notify.mailer import DeliveryResult, OutgoingMail, create_mailer
 from src.pipeline.prefilter import Prefilter
+from src.pipeline.enrichment import build_enricher
 from src.pipeline.runner import Pipeline
 from src.report import DailyReport, build_report, render_html, render_text
 from src.scoring.engine import ScoreEngine
@@ -72,6 +73,8 @@ def build_pipeline(
         settings=settings.pipeline,
         clock=clock,
         acknowledge=acknowledge,
+        enricher=build_enricher(settings.enrichment),
+        max_enrichment_requests_per_run=settings.enrichment.max_requests_per_run,
     )
 
 
