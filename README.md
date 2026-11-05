@@ -180,6 +180,22 @@ der Brave-Treffer, ihre Titel und URLs sowie den Ablehnungsgrund. Es gibt
 .\.venv\Scripts\python.exe -m src.main enrich-preview --id 162 --diagnose
 ```
 
+**Mehrfachveröffentlichungen:** Wenn mehrere Suchresultate die gleiche
+charakteristische Ausschreibung nahezu wortgleich betiteln, wählt die
+Recherche eine Hauptfundstelle aus (zuerst die bekannte Originalplattform,
+dann bekannte Projektportale, danach den ausführlicheren Suchauszug).
+Sie zeigt die weiteren Links als **wahrscheinliche Spiegelveröffentlichungen**
+an. Die Inhalte werden **nicht** zusammenkopiert oder als unabhängige
+Bestätigungen betrachtet. Bei kurzen/generischen Titeln, abweichenden
+Titeldetails oder erkennbar widersprüchlichen Stundensätzen bleibt
+der Fall aus Sicherheitsgründen weiterhin mehrdeutig.
+
+Im Fall `enrich-preview --id 162 --diagnose` wurden bei der ersten
+Live-Suche zwei identisch betitelte Treffer auf freelancermap.de und
+nexus.webconia.de gefunden. Die Logik wurde mit diesem Diagnosefall
+offline nachgestellt; sie **beweist nicht**, dass es dieselbe reale
+Beauftragung ist, und sie lädt weiterhin keinen garantierten Volltext.
+
 Die Brave-Suche ist nun für deutschsprachige Projekte auf
 `country: DE` und `search_lang: de` voreingestellt (über
 `AGENT_ENRICHMENT__COUNTRY` und
