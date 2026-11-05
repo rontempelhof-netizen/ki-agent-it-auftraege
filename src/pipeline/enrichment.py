@@ -43,6 +43,7 @@ class EnrichmentMatch:
     title: str
     text: str
     evidence: str
+    mirror_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,66 @@ def _match_strength(candidate: LeadCandidate, title: str, snippets: str, url: st
             f"gesamt {overlap_all}/{len(query_terms)} ({coverage:.0%})"
         )
     return coverage, f"Titelabgleich {overlap_title} Wörter, Gesamtdeckung {coverage:.0%}"
+
+
+# Strong title agreement is useful for detecting syndicated *copies*.
+# Generic role names must never be de-duplicated solely by a score tie.
+_RATE_FACT_RE = re.compile(
+    r"\b(\d{2,4})(?:[,.]\d{1,2})?\s*(?:€|eur|euro)\s*(?:/|pro|je)\s*"
+    r"(h|std\.?|stunde|tag|pt)\b",
+    re.IGNORECASE,
+)
+
+
+def _ordered_terms(title: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            w.casefold() for w in _TOKEN.findall(title)
+            if len(w) >= 4 and w.casefold() not in _STOPWORDS and not w.isdigit()
+        )
+    )
+
+
+def _mirror_title(candidate: LeadCandidate, title: str) -> bool:
+    """Require a very distinctive title, in identical characteristic-word order.
+
+    A portal may suffix "auf www.freelancermap.de"; allow at most one
+    additional significant word. A generic Python job title is insufficient.
+    """
+    core = _ordered_terms(candidate.title)
+    found = _ordered_terms(title)
+    if len(core) < 5 or len(found) < len(core) or len(found) - len(core) > 1:
+        return False
+    positions = iter(found)
+    return all(any(value == word for value in positions) for word in core)
+
+
+def _rate_facts(text: str) -> set[tuple[int, str]]:
+    """Only compare explicit rates with identical rate units; no guesswork."""
+    normalized: set[tuple[int, str]] = set()
+    for amount, unit in _RATE_FACT_RE.findall(text):
+        kind = "hour" if unit.lower().startswith(("h", "std")) else "day"
+        normalized.add((int(amount), kind))
+    return normalized
+
+
+def _mirrors_do_not_conflict(matches: list[EnrichmentMatch]) -> bool:
+    """Reject obviously conflicting rate facts; never merge disparate snippets."""
+    rates = [_rate_facts(m.text) for m in matches]
+    for i, left in enumerate(rates):
+        for right in rates[i + 1:]:
+            if left and right and left.isdisjoint(right):
+                return False
+    return True
+
+
+def _preferred_source_key(candidate: LeadCandidate, match: EnrichmentMatch) -> tuple[int, int, int, str]:
+    """Prefer original host, then a monitored project portal, then richer text."""
+    host = urlsplit(match.url).hostname or ""
+    original_host = urlsplit(candidate.source_url or "").hostname or ""
+    trusted_portal_suffixes = ("freelancermap.de", "freelance.de", "gulp.de")
+    is_portal = any(host == d or host.endswith("." + d) for d in trusted_portal_suffixes)
+    return (int(bool(original_host and host == original_host)), int(is_portal), len(match.text), match.url)
 
 
 class BraveContextEnricher:
@@ -212,12 +273,38 @@ class BraveContextEnricher:
                 ),
             ))
         matches.sort(key=lambda item: item[0], reverse=True)
-        outcome = (
-            "keine Suchtreffer" if not generic
-            else "keine hinreichend passenden Treffer" if not matches
-            else "mehrdeutige Zuordnung" if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.15
-            else "eindeutiger Treffer"
-        )
+        result: EnrichmentMatch | None = None
+        if not generic:
+            outcome = "keine Suchtreffer"
+        elif not matches:
+            outcome = "keine hinreichend passenden Treffer"
+        else:
+            # Only results near the top score can cause ambiguity.
+            competing = [match for strength, match in matches if matches[0][0] - strength < 0.15]
+            if len(competing) == 1:
+                result = matches[0][1]
+                outcome = "eindeutiger Treffer"
+            elif (
+                all(_mirror_title(candidate, match.title) for match in competing)
+                and _mirrors_do_not_conflict(competing)
+            ):
+                # Search hits from syndication sites are not independent proof.
+                # Select ONE source and never blend text snippets or inferred facts.
+                primary = max(competing, key=lambda m: _preferred_source_key(candidate, m))
+                mirrors = tuple(sorted({m.url for m in competing if m.url != primary.url}))
+                result = EnrichmentMatch(
+                    url=primary.url,
+                    title=primary.title,
+                    text=primary.text,
+                    evidence=(
+                        f"{primary.evidence}; {len(competing)} sehr ähnliche "
+                        "Veröffentlichungen, nur eine Quelle verwendet"
+                    ),
+                    mirror_urls=mirrors,
+                )
+                outcome = "wahrscheinliche Mehrfachveröffentlichung"
+            else:
+                outcome = "mehrdeutige Zuordnung"
         self.last_diagnostics = SearchDiagnostics(
             query=search_query,
             total_results=len(generic),
@@ -225,9 +312,7 @@ class BraveContextEnricher:
             outcome=outcome,
             candidates=tuple(diagnostics),
         )
-        if outcome != "eindeutiger Treffer":
-            return None
-        return matches[0][1]
+        return result
 
 
 def build_enricher(settings: EnrichmentSettings) -> Enricher | None:
