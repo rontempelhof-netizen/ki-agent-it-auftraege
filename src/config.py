@@ -284,6 +284,24 @@ class LLMSettings(BaseModel):
         return value.strip()
 
 
+class EnrichmentSettings(BaseModel):
+    """Optionale Volltext-Recherche über offizielle Such-API; standardmäßig AUS.
+
+    Brave Context kann selbst Kosten verursachen. Es findet KEIN direktes
+    Crawling fremder Projektseiten statt.
+    """
+
+    enabled: bool = False
+    max_requests_per_run: int = Field(2, ge=0, le=20)
+    max_original_chars: int = Field(900, ge=0)
+    search_token_budget: int = Field(2500, ge=500, le=10000)
+    max_results: int = Field(6, ge=1, le=20)
+    min_snippet_chars: int = Field(100, ge=50, le=2000)
+    max_enriched_chars: int = Field(4500, ge=100, le=10000)
+    max_response_bytes: int = Field(500000, ge=10000, le=2000000)
+    timeout_seconds: float = Field(15, gt=0, le=60)
+
+
 class PipelineSettings(BaseModel):
     max_llm_analyses_per_run: int = Field(20, ge=0)
     """Obergrenze der LLM-Analysen je Lauf; überzählige Kandidaten bleiben als pending gespeichert."""
@@ -353,6 +371,7 @@ class Settings(BaseSettings):
     scoring: ScoringSettings = ScoringSettings()
     sources: SourcesSettings = SourcesSettings()
     llm: LLMSettings = LLMSettings()
+    enrichment: EnrichmentSettings = EnrichmentSettings()
     pipeline: PipelineSettings = PipelineSettings()
     prefilter: PrefilterSettings = PrefilterSettings()
     report: ReportSettings = ReportSettings()

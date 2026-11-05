@@ -132,6 +132,82 @@ tatsächlichen Lieferfähigkeit. Wirkliche Änderungen der Score-Gewichte und
 eine optionale Nachladung vollständiger Projekttexte erfolgen erst nach
 weiterer Kalibrierung und Prüfung der Portalzugriffsbedingungen.
 
+## Automatische Recherche statt manueller Projektseitenarbeit (erste Stufe)
+
+Der Agent kann **optional** vor einer kostenpflichtigen LLM-Analyse zusätzliche
+Textpassagen zur Ausschreibung über die offizielle **Brave LLM Context API**
+recherchieren. Damit ist **kein direktes Crawling** oder automatisches Abrufen
+gesperrter Projektportale erforderlich. Die Schnittstelle liefert Suchtreffer,
+Quell-URLs und bereits extrahierte Passagen. Sie ist ein Suchdienst und
+**garantiert keinen vollständigen Ausschreibungstext**.
+
+Ablauf: Normales Einlesen/Deduplizieren -> Prefilter -> bei kurzer Beschreibung
+mit IT-Bezug und noch verfügbarem Recherchebudget eine Suchanfrage ->
+**konservativer Titel-/Projekt-ID-Abgleich** -> passende ergänzende
+Quellpassagen flüchtig der LLM-Analyse beifügen -> vorhandene Score Engine.
+Wenn die Identität nicht hinreichend belegbar ist, nutzt der Agent ausschließlich
+die ursprünglichen Informationen. Such- und Anbieterfehler stoppen die
+eigentliche Analyse nicht.
+
+**Sicherheit und Datenqualität**
+- Default: `enrichment.enabled: false`. Ohne Brave-Key und ohne Opt-in
+  ist der bestehende Betrieb einschließlich der Offline-Demo unverändert.
+- Maximal `max_requests_per_run: 2` Suchanfragen pro Crawl-Lauf; auch die
+  Zahl kostenpflichtiger Claude-Analysen bleibt separat begrenzt.
+- Nur der feste Brave-API-Endpunkt wird angesprochen; **keine Requests
+  an die in Ergebnissen gefundenen Seiten**. Keine Browser-Imitation,
+  keine Login-/Captcha- oder robots.txt-Umgehung.
+- Quell-Ausschnitte sind nicht automatisch verifiziert und werden
+  **nicht** in der SQLite-Originalbeschreibung gespeichert. Analyse und
+  Originalbeschreibung bleiben getrennt; aus extrahierten Daten dürfen
+  keine unbelegten Fakten werden.
+- Bei mehreren gleich gut passenden Quellen wird bewusst **keine**
+  Anreicherung vorgenommen. Die Validierung der Quellenidentität muss
+  an realen Projekten weiter kalibriert werden.
+- **Quellen-Provenienz und Rechte:** Diese erste Stufe speichert keine
+  vollständigen Suchresultate oder Textauszüge. Für dauerhaft gespeicherte
+  Recherche-Belege ist vor Ausbau der jeweilige API-Vertrag einschließlich
+  zulässiger Speicherung zu prüfen.
+
+**Zuerst Trefferqualität prüfen:** Mit einer bereits gespeicherten Lead-ID lässt
+sich eine *einzelne* Brave-Recherche starten, ohne Claude, Gmail, Scoring
+oder die Datenbank aufzurufen bzw. zu verändern:
+
+```powershell
+$env:AGENT_DATABASE__URL = "sqlite:///data/agent-test.db"
+# BRAVE_API_KEY zuvor sicher und separat setzen (nicht ins Terminal-Log kopieren)
+.\.venv\Scripts\python.exe -m src.main enrich-preview --id 162
+```
+
+Der Befehl macht bei kurzen IT-Leads maximal **eine** Brave-API-Anfrage
+(auch für zuvor analysierte Leads). Er zeigt die erkannte Quelle und die
+Textpassage, falls der Projektabgleich ausreichend eindeutig ist. Ohne
+einen eindeutigen Treffer wird nichts ergänzt. Such-API-Kosten sind
+möglich; das Claude-Guthaben wird nicht belastet.
+
+**Aktivierung erst nach eigener Entscheidung:** Ein Brave Search API-Konto
+ist erforderlich; es kann mit Kosten verbunden sein und ist unabhängig
+vom Anthropic-Guthaben. Den separaten Schlüssel **nur lokal** als
+`BRAVE_API_KEY` setzen und **nie** in Chats, Logs oder Git
+kopieren. Nach Prüfung der API-Bedingungen und der Abrechnung sind die
+Schritte beispielsweise:
+
+```powershell
+# Beispiel NUR nach bewusster Aktivierung und in der TESTDATENBANK
+$env:AGENT_DATABASE__URL = "sqlite:///data/agent-test.db"
+$env:AGENT_ENRICHMENT__ENABLED = "true"
+$env:AGENT_ENRICHMENT__MAX_REQUESTS_PER_RUN = "1"
+$env:AGENT_LLM__MAX_ATTEMPTS = "1"
+# BRAVE_API_KEY separat und sicher in der eigenen Shell setzen
+.\.venv\Scripts\python.exe -m src.main crawl --source email --max-llm 1 --no-ack
+```
+
+Hinweis: Brave Search API kann nach aktuellem Tarif abgerechnet werden;
+auch wenn die Claude-Aufrufe auf eins beschränkt sind, ist eine Brave-Abfrage
+eine weitere API-Transaktion. Vor Produktivbetrieb werden Trefferabgleich,
+Provenienz, rechtliche Nutzbarkeit und reale Kosten anhand ausgewählter
+Testfälle abgenommen.
+
 ## Gmail API (rein lesend)
 
 Neben dem unveränderten Offline-Postfach (backend: eml) unterstützt der Agent
