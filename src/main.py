@@ -49,6 +49,9 @@ def _build_parser() -> argparse.ArgumentParser:
     review.add_argument("--id", type=int, metavar="ID", help="Nur diese Lead-ID prüfen")
     review.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal 100 Treffer (Standard: 20)")
 
+    preview = subparsers.add_parser("enrich-preview", help="Recherche für Lead-ID prüfen (Brave-Abfrage, kein Claude oder Gmail)")
+    preview.add_argument("--id", type=int, required=True, metavar="ID", help="Beliebige gespeicherte Lead-ID")
+
     selected = subparsers.add_parser("analyze-lead", help="Nur einen gewählten Pending-Lead analysieren (kein Gmail-Abruf)")
     selected.add_argument("--id", type=int, required=True, metavar="ID", help="Lead-ID aus pending-leads")
     selected.add_argument("--fake-llm", action="store_true", help="Simulation statt kostenpflichtigem API-Aufruf")
@@ -249,6 +252,53 @@ def _cmd_review_leads(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_enrich_preview(settings: Settings, args: argparse.Namespace) -> int:
+    """Genau eine externe Such-API-Abfrage, ohne Claude oder Datenbankänderung.
+
+    Auch bereits analysierte Leads können so geprüft werden.
+    """
+    from src.domain.models import LeadCandidate
+    from src.pipeline.enrichment import BraveContextEnricher
+    from src.storage.repository import LeadRepository
+
+    if args.id < 1:
+        print("Fehler: --id muss positiv sein.", file=sys.stderr)
+        return EXIT_ERROR
+    engine, factory = _prepare_db(settings)
+    try:
+        with factory() as session:
+            lead = LeadRepository(session).get(args.id)
+    finally:
+        engine.dispose()
+    if lead is None:
+        print(f"Fehler: Lead #{args.id} existiert nicht.", file=sys.stderr)
+        return EXIT_ERROR
+    candidate = LeadCandidate.model_validate(
+        lead.model_dump(include=set(LeadCandidate.model_fields))
+    )
+    enricher = BraveContextEnricher(settings.enrichment)
+    if not enricher.should_search(candidate):
+        print(f"Lead #{args.id}: Recherche nicht erforderlich (Quelltext lang oder kein IT-Hinweis).")
+        print("Keine API-Anfragen oder Datenänderungen.")
+        return EXIT_OK
+    try:
+        match = enricher.enrich(candidate)
+    except Exception as exc:  # noqa: BLE001 - API-Fehler, aber niemals Geheimnisse im Terminal ausgeben
+        print(f"Recherche nicht erfolgreich ({type(exc).__name__}).", file=sys.stderr)
+        return EXIT_PARTIAL
+    if match is None:
+        print(f"Lead #{args.id}: Keine eindeutig zuordenbare Recherchequelle gefunden.")
+    else:
+        print(f"Lead #{args.id}: Recherchequelle eindeutig genug für einen ersten Test.")
+        print(f"Quelle: {_one_line(match.url, 500)}")
+        print(f"Titel: {_one_line(match.title, 250)}")
+        print(f"Zuordnung: {match.evidence}")
+        print("Rechercheauszug:")
+        print(_one_line(match.text, 1800))
+    print("Ein Brave-API-Aufruf (ggf. kostenpflichtig); kein Claude, kein Gmail, keine Speicherung.")
+    return EXIT_OK
+
+
 def _cmd_analyze_lead(settings: Settings, args: argparse.Namespace) -> int:
     from src.app import build_pipeline
     from src.domain.enums import ProcessingStatus
@@ -373,6 +423,7 @@ COMMANDS = {
     "duplicate-check": _cmd_duplicate_check,
     "pending-leads": _cmd_pending_leads,
     "review-leads": _cmd_review_leads,
+    "enrich-preview": _cmd_enrich_preview,
     "analyze-lead": _cmd_analyze_lead,
     "crawl": _cmd_crawl,
     "report": _cmd_report,
