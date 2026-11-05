@@ -147,7 +147,7 @@ def test_review_leads_cli_reads_existing_analysis_without_changing_data(tmp_path
     out = capsys.readouterr().out
     assert f"Lead #{saved.id}" in out
     assert "REJECT 44/100" in out
-    assert "Keine Neubewertung" in out
+    assert "keine Neubewertung" in out
     assert main(["review-leads", "--limit", "0"]) == 2
     assert main(["review-leads", "--id", "999"]) == 2
     with session_scope(factory) as session:
