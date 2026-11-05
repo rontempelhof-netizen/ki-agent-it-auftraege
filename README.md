@@ -93,6 +93,45 @@ oder einen noch nicht analysierten Datensatz wählen. Eine Auswahl zeigt
 Titel und kurze Beschreibung, die eigentliche Analyse zeigt Klasse,
 Score, Zusammenfassung, Passung und geschätzte API-Kosten.
 
+## Zweite Sichtung: fachlich interessant, Angaben klären
+
+Die **bestehende A/B/C/REJECT-Klassifizierung und ihre 100 Punkte bleiben unverändert**.
+Um interessante Projekte mit kurzen E-Mail-Ausschreibungen nicht vorschnell aus
+den Augen zu verlieren, gibt es zusätzlich eine **rein abgeleitete Klärfallliste**.
+
+Nur Leads mit bereits erfolgreich abgeschlossener KI-Analyse können Klärfälle werden.
+Voraussetzungen:
+
+- Klasse REJECT, aber **kein** Hard Fail (nicht fest angestellt, nicht wegen Pflichtzertifikat ausgeschlossen etc.)
+- Entweder `technical_fit = high` **oder** `consulting_fit = high`
+- Mindestens zwei echte Informationslücken: Budget, Umfang, Kunden-/Vermittlungsart
+  oder Zugangshürden
+- Ausstehende, gescheiterte und vorgefilterte Leads bleiben ausgeschlossen
+
+Eine Beschreibung mit weniger als 250 Zeichen führt zusätzlich zum Hinweis,
+**die Vollständigkeit der Originalausschreibung zu prüfen**. Sie ist kein
+Beweis, dass der Originaltext unvollständig ist. Die Quelle wird nicht
+automatisch nachgeladen.
+
+Die Klärfälle erscheinen separat im HTML- und Text-Tagesreport, inklusive
+Original-Link, **ohne** als A- oder B-Leads zu gelten. Die Auswahl wird bei der
+Report-Erstellung aus gespeicherten Analysen berechnet; keine Schemaänderung,
+keine neuen API-Aufrufe.
+
+Bereits bewertete Leads aus einer aktiven Datenbank prüfen:
+
+```powershell
+python -m src.main review-leads --id 162
+python -m src.main review-leads --limit 20
+```
+
+Diese Befehle sind nur lesend, benötigen keinen Claude-Key und bearbeiten
+weder Gmail noch die Datenbank. Die Klärfallliste ist bewusst konservativ:
+Ein hoher, vom LLM erkannter Fit ist ein **Prüfhinweis**, kein Nachweis der
+tatsächlichen Lieferfähigkeit. Wirkliche Änderungen der Score-Gewichte und
+eine optionale Nachladung vollständiger Projekttexte erfolgen erst nach
+weiterer Kalibrierung und Prüfung der Portalzugriffsbedingungen.
+
 ## Gmail API (rein lesend)
 
 Neben dem unveränderten Offline-Postfach (backend: eml) unterstützt der Agent
