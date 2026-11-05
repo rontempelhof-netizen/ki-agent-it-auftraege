@@ -134,6 +134,7 @@ def test_pipeline_enriches_only_llm_request_and_preserves_email_source(tmp_path)
     pipeline = env.pipeline(provider, connectors=[])
     pipeline._enricher = stub
     pipeline._max_enrichment_requests = 1
+    pipeline._settings = pipeline._settings.model_copy(update={"max_llm_analyses_per_run": 1})
 
     result = pipeline.run_selected(selected.id)
 
