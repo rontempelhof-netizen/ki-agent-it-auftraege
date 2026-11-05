@@ -45,6 +45,25 @@ class EnrichmentMatch:
     evidence: str
 
 
+@dataclass(frozen=True)
+class SearchCandidateDiagnostic:
+    """Suchtreffer ohne Volltext oder Zugangsdaten; nur für die lokale Diagnose."""
+
+    title: str
+    url: str
+    score: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class SearchDiagnostics:
+    query: str
+    total_results: int
+    checked_results: int
+    outcome: str
+    candidates: tuple[SearchCandidateDiagnostic, ...]
+
+
 class Enricher(Protocol):
     def should_search(self, candidate: LeadCandidate) -> bool: ...
     def enrich(self, candidate: LeadCandidate) -> EnrichmentMatch | None: ...
@@ -94,10 +113,16 @@ def _match_strength(candidate: LeadCandidate, title: str, snippets: str, url: st
     overlap_title = len(query_terms & title_terms)
     overlap_all = len(query_terms & (title_terms | _terms(snippets)))
     coverage = overlap_all / len(query_terms)
-    # Mindestens drei aussagekräftige Wörter in der gefundenen Überschrift,
-    # vier im Gesamttext sowie >=75 % Titelwortabdeckung.
-    if overlap_title < 3 or overlap_all < 4 or coverage < 0.75:
-        return 0.0, "Titel/Anforderungen nicht eindeutig genug"
+    # Bei mindestens fünf charakteristischen Titelbegriffen reichen zwei
+    # Titelübereinstimmungen, wenn insgesamt mindestens vier Begriffe und
+    # mindestens 80 % des Quelltitels (inkl. Snippets) wiederzufinden sind.
+    # Bei kürzeren Titeln bleiben drei Treffer im gefundenen Titel Pflicht.
+    title_minimum = 2 if len(query_terms) >= 5 and coverage >= 0.8 else 3
+    if overlap_title < title_minimum or overlap_all < 4 or coverage < 0.75:
+        return 0.0, (
+            f"Abgleich unzureichend: Titel {overlap_title}/{title_minimum}, "
+            f"gesamt {overlap_all}/{len(query_terms)} ({coverage:.0%})"
+        )
     return coverage, f"Titelabgleich {overlap_title} Wörter, Gesamtdeckung {coverage:.0%}"
 
 
@@ -106,6 +131,7 @@ class BraveContextEnricher:
 
     def __init__(self, settings: EnrichmentSettings) -> None:
         self._settings = settings
+        self.last_diagnostics: SearchDiagnostics | None = None
         self._api_key = os.getenv("BRAVE_API_KEY", "").strip()
         if not self._api_key:
             raise ValueError(
@@ -121,6 +147,7 @@ class BraveContextEnricher:
 
     def enrich(self, candidate: LeadCandidate) -> EnrichmentMatch | None:
         """Genau eine Suchanfrage, maximal wenige Resultate, kein direktes Scraping."""
+        self.last_diagnostics = None
         # Kein exakter Gesamt-Titel: Erstveröffentlicher formulieren häufig
         # anders als die Plattformen, die ihre Projektalarme verschicken.
         search_terms: list[str] = []
@@ -131,6 +158,8 @@ class BraveContextEnricher:
         search_query = " ".join(search_terms[:8])[:180] + " Projekt Freelancer"
         query = urlencode({
             "q": search_query,
+            "country": self._settings.country,
+            "search_lang": self._settings.search_lang,
             "maximum_number_of_tokens": self._settings.search_token_budget,
         })
         request = Request(
@@ -149,21 +178,28 @@ class BraveContextEnricher:
         data = json.loads(payload)
         generic = data.get("grounding", {}).get("generic", [])
         if not isinstance(generic, list):
-            return None
+            generic = []
 
         matches: list[tuple[float, EnrichmentMatch]] = []
+        diagnostics: list[SearchCandidateDiagnostic] = []
         for source in generic[: self._settings.max_results]:
             if not isinstance(source, dict):
+                diagnostics.append(SearchCandidateDiagnostic("", "", 0.0, "Ungültiger Antwort-Eintrag"))
                 continue
             url = source.get("url")
             title = source.get("title")
             snippets = source.get("snippets")
             if not isinstance(url, str) or not isinstance(title, str) or not isinstance(snippets, list):
+                diagnostics.append(SearchCandidateDiagnostic("", "", 0.0, "Titel, URL oder Snippets fehlen"))
                 continue
             joined = "\n".join(snippet for snippet in snippets if isinstance(snippet, str)).strip()
             if len(joined) < self._settings.min_snippet_chars:
+                diagnostics.append(SearchCandidateDiagnostic(
+                    title[:250], url[:500], 0.0, f"Textauszug zu kurz ({len(joined)} Zeichen)"
+                ))
                 continue
             strength, evidence = _match_strength(candidate, title, joined, url)
+            diagnostics.append(SearchCandidateDiagnostic(title[:250], url[:500], strength, evidence))
             if strength <= 0:
                 continue
             matches.append((
@@ -176,11 +212,20 @@ class BraveContextEnricher:
                 ),
             ))
         matches.sort(key=lambda item: item[0], reverse=True)
-        if not matches:
-            return None
-        # Zwei gleich gute Treffer können verschiedene Aufträge sein.
-        # Kein willkürliches Mischen von Daten konkurrierender Projekte.
-        if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.15:
+        outcome = (
+            "keine Suchtreffer" if not generic
+            else "keine hinreichend passenden Treffer" if not matches
+            else "mehrdeutige Zuordnung" if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.15
+            else "eindeutiger Treffer"
+        )
+        self.last_diagnostics = SearchDiagnostics(
+            query=search_query,
+            total_results=len(generic),
+            checked_results=len(diagnostics),
+            outcome=outcome,
+            candidates=tuple(diagnostics),
+        )
+        if outcome != "eindeutiger Treffer":
             return None
         return matches[0][1]
 

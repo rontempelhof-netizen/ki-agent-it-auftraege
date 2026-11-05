@@ -81,6 +81,8 @@ def test_brave_context_fetches_only_fixed_api_and_matches_source_id(monkeypatch)
     assert request.get_header("X-subscription-token") == "test-secret-not-logged"
     query = parse_qs(urlsplit(request.full_url).query)["q"][0]
     assert "python" in query and "pycharm" in query
+    assert parse_qs(urlsplit(request.full_url).query)["country"] == ["DE"]
+    assert parse_qs(urlsplit(request.full_url).query)["search_lang"] == ["de"]
 
 
 def test_ambiguous_titles_and_unrelated_results_are_rejected(monkeypatch):
@@ -198,3 +200,74 @@ def test_enrich_preview_works_on_existing_lead_without_ai_or_db_writes(tmp_path,
     with session_scope(env.factory) as session:
         assert LeadRepository(session).get(saved.id) == saved
     assert main(["enrich-preview", "--id", "9999"]) == 2
+
+
+
+def test_context_diagnostics_distinguish_no_results_and_strict_rejection(monkeypatch):
+    monkeypatch.setenv("BRAVE_API_KEY", "fake")
+    responses = [
+        {"grounding": {"generic": []}},
+        {"grounding": {"generic": [{
+            "url": "https://example.com/andere-stelle",
+            "title": "Senior Java Entwickler",
+            "snippets": ["Gesucht wird Java Developer für eine andere Position. " * 4],
+        }]}},
+    ]
+
+    def urlopen(_request, timeout):
+        return Response(responses.pop(0))
+
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+    enricher = BraveContextEnricher(EnrichmentSettings(enabled=True))
+
+    assert enricher.enrich(_candidate()) is None
+    assert enricher.last_diagnostics is not None
+    assert enricher.last_diagnostics.total_results == 0
+    assert enricher.last_diagnostics.outcome == "keine Suchtreffer"
+
+    assert enricher.enrich(_candidate()) is None
+    assert enricher.last_diagnostics is not None
+    assert enricher.last_diagnostics.total_results == 1
+    assert enricher.last_diagnostics.outcome == "keine hinreichend passenden Treffer"
+    assert enricher.last_diagnostics.candidates[0].score == 0
+    assert "Abgleich" in enricher.last_diagnostics.candidates[0].reason
+
+
+def test_title_matching_accepts_strong_description_evidence_with_shortened_original_title():
+    candidate = _candidate()
+    score, why = _match_strength(
+        candidate,
+        "Python Developer Datenmigration",
+        "Datenmigration mit Python, Oracle, PyCharm und GitLab. Umfassende Details.",
+        "https://origin.example.com/python-entwicklung",
+    )
+    assert score == 1.0
+    assert "Titelabgleich" in why
+
+
+def test_cli_diagnose_lists_brave_rejection_reasons_without_extra_requests(tmp_path, monkeypatch, capsys):
+    env = make_env(tmp_path, max_llm_analyses_per_run=0)
+    with session_scope(env.factory) as session:
+        saved = LeadRepository(session).add(Lead.pending(_candidate()))
+
+    monkeypatch.setenv("AGENT_DATABASE__URL", env.settings.database.url)
+    monkeypatch.setenv("BRAVE_API_KEY", "redacted-key")
+    calls = []
+
+    def urlopen(request, timeout):
+        calls.append(request)
+        return Response({"grounding": {"generic": [{
+            "url": "https://example.org/stellenangebot",
+            "title": "Java Backend Entwickler",
+            "snippets": ["Eine völlig andere Java-Stelle mit anderem technischen Schwerpunkt. " * 3],
+        }]}})
+
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+    assert main(["enrich-preview", "--id", str(saved.id), "--diagnose"]) == 0
+    out = capsys.readouterr().out
+    assert "Diagnose: keine hinreichend passenden Treffer" in out
+    assert "Treffer 1:" in out
+    assert "Suchanfrage:" in out
+    assert "Prüfung:" in out
+    assert "redacted-key" not in out
+    assert len(calls) == 1

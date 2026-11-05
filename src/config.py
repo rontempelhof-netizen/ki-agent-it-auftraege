@@ -293,6 +293,8 @@ class EnrichmentSettings(BaseModel):
 
     enabled: bool = False
     max_requests_per_run: int = Field(2, ge=0, le=20)
+    country: str = Field("DE", pattern=r"^[A-Z]{2}$")
+    search_lang: str = Field("de", pattern=r"^[a-z]{2,3}$")
     max_original_chars: int = Field(900, ge=0)
     search_token_budget: int = Field(2500, ge=500, le=10000)
     max_results: int = Field(6, ge=1, le=20)
