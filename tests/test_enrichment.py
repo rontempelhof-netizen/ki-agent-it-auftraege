@@ -9,8 +9,8 @@ import pytest
 
 from src.app import build_pipeline
 from src.config import EnrichmentSettings
-from src.domain.enums import ProcessingStatus
-from src.domain.models import Lead
+from src.domain.enums import ProcessingStatus, LeadClass, Level
+from src.domain.models import Lead, LeadAnalysis
 from src.main import main
 from src.llm import FakeLLMProvider
 from src.pipeline.enrichment import BraveContextEnricher, EnrichmentMatch, _match_strength
@@ -173,7 +173,12 @@ def test_search_budget_is_independent_and_limits_requests(tmp_path):
 def test_enrich_preview_works_on_existing_lead_without_ai_or_db_writes(tmp_path, monkeypatch, capsys):
     env = make_env(tmp_path, max_llm_analyses_per_run=0)
     with session_scope(env.factory) as session:
-        saved = LeadRepository(session).add(Lead.pending(_candidate()))
+        already_analyzed = Lead.pending(_candidate()).model_copy(update={
+            "processing_status": ProcessingStatus.ANALYZED,
+            "lead_class": LeadClass.REJECT,
+            "analysis": LeadAnalysis(technical_fit=Level.HIGH),
+        })
+        saved = LeadRepository(session).add(already_analyzed)
     monkeypatch.setenv("AGENT_DATABASE__URL", env.settings.database.url)
     monkeypatch.setenv("BRAVE_API_KEY", "secret-for-test")
 
