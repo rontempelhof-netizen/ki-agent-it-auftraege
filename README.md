@@ -169,6 +169,22 @@ eigentliche Analyse nicht.
   Recherche-Belege ist vor Ausbau der jeweilige API-Vertrag einschließlich
   zulässiger Speicherung zu prüfen.
 
+**Zuerst Trefferqualität prüfen:** Mit einer bereits gespeicherten Lead-ID lässt
+sich eine *einzelne* Brave-Recherche starten, ohne Claude, Gmail, Scoring
+oder die Datenbank aufzurufen bzw. zu verändern:
+
+```powershell
+$env:AGENT_DATABASE__URL = "sqlite:///data/agent-test.db"
+# BRAVE_API_KEY zuvor sicher und separat setzen (nicht ins Terminal-Log kopieren)
+.\.venv\Scripts\python.exe -m src.main enrich-preview --id 162
+```
+
+Der Befehl macht bei kurzen IT-Leads maximal **eine** Brave-API-Anfrage
+(auch für zuvor analysierte Leads). Er zeigt die erkannte Quelle und die
+Textpassage, falls der Projektabgleich ausreichend eindeutig ist. Ohne
+einen eindeutigen Treffer wird nichts ergänzt. Such-API-Kosten sind
+möglich; das Claude-Guthaben wird nicht belastet.
+
 **Aktivierung erst nach eigener Entscheidung:** Ein Brave Search API-Konto
 ist erforderlich; es kann mit Kosten verbunden sein und ist unabhängig
 vom Anthropic-Guthaben. Den separaten Schlüssel **nur lokal** als
