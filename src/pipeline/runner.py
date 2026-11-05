@@ -20,6 +20,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
@@ -30,6 +31,7 @@ from src.domain.enums import CrawlRunStatus, LeadClass, ProcessingStatus
 from src.domain.models import CrawlRun, Lead, LeadCandidate, RawSourceItem, merge_source_facts
 from src.llm.service import AnalysisFailedError, AnalysisResult
 from src.pipeline.normalize import NormalizationError, normalize
+from src.pipeline.enrichment import Enricher
 from src.pipeline.prefilter import Prefilter
 from src.scoring.engine import ScoreEngine
 from src.sources.base import FetchResult, SourceConnector, safe_fetch
@@ -57,9 +59,10 @@ class RunSummary(BaseModel):
 
 
 class _RunState:
-    def __init__(self, run_id: int, llm_budget: int) -> None:
+    def __init__(self, run_id: int, llm_budget: int, enrichment_budget: int = 0) -> None:
         self.run_id = run_id
         self.llm_budget = llm_budget
+        self.enrichment_budget = enrichment_budget
         self.stats: Counter[str] = Counter()
         self.warnings: list[str] = []
         self.errors: list[str] = []
@@ -77,6 +80,8 @@ class Pipeline:
         settings: PipelineSettings,
         clock: Clock = lambda: datetime.now(UTC),
         acknowledge: bool = True,
+        enricher: Enricher | None = None,
+        max_enrichment_requests_per_run: int = 0,
     ) -> None:
         self._connectors = list(connectors)
         self._analyzer = analyzer
@@ -86,6 +91,8 @@ class Pipeline:
         self._settings = settings
         self._clock = clock
         self._acknowledge = acknowledge
+        self._enricher = enricher
+        self._max_enrichment_requests = max_enrichment_requests_per_run if enricher else 0
 
     @property
     def connector_names(self) -> list[str]:
@@ -102,7 +109,7 @@ class Pipeline:
         with session_scope(self._session_factory) as session:
             run_id = CrawlRunRepository(session).add(CrawlRun(source=source, started_at=started)).id
         assert run_id is not None
-        state = _RunState(run_id, self._settings.max_llm_analyses_per_run)
+        state = _RunState(run_id, self._settings.max_llm_analyses_per_run, self._max_enrichment_requests)
         logger.info("crawl_started", extra={"run_id": run_id, "source": source})
 
         self._process_pending(state)
@@ -137,7 +144,7 @@ class Pipeline:
         with session_scope(self._session_factory) as session:
             run_id = CrawlRunRepository(session).add(CrawlRun(source=source, started_at=started)).id
         assert run_id is not None
-        state = _RunState(run_id, llm_budget=1)
+        state = _RunState(run_id, llm_budget=1, enrichment_budget=self._max_enrichment_requests)
         logger.info("selected_analysis_started", extra={"run_id": run_id, "lead_id": lead_id})
         self._resume_leads(state, [lead])
         return self._finish(state, started, source)
@@ -266,8 +273,39 @@ class Pipeline:
     def _analyze(self, candidate: LeadCandidate, state: _RunState, failures: int) -> Lead:
         state.llm_budget -= 1
         state.stats["llm_analyses"] += 1
+        # Nur bei tatsächlich bevorstehender LLM-Analyse anreichern. Prefilter-
+        # Rejects, überzählige Pending-Leads und bekannte Duplikate erzeugen
+        # niemals Rechercheanfragen.
+        analysis_candidate = candidate
+        if self._enricher is not None and state.enrichment_budget > 0 and self._enricher.should_search(candidate):
+            state.enrichment_budget -= 1
+            state.stats["enrichment_queries"] += 1
+            try:
+                match = self._enricher.enrich(candidate)
+                if match is not None:
+                    state.stats["enrichment_matches"] += 1
+                    analysis_candidate = candidate.model_copy(update={
+                        "description": (
+                            f"{candidate.description}\n\n"
+                            "[Zusätzlicher externer Recherchekontext; projektbezogene Aussagen "
+                            "nur bei belegter Zuordnung übernehmen. Kein garantierter Volltext.]\n"
+                            f"Quellentitel: {match.title}\nQuelle: {match.url}\n"
+                            f"Zuordnungsbeleg: {match.evidence}\n{match.text}"
+                        )
+                    })
+                    logger.info("enrichment_match", extra={
+                        "source": candidate.source, "source_id": candidate.source_id,
+                        "matched_host": urlsplit(match.url).hostname,
+                    })
+                else:
+                    state.stats["enrichment_no_match"] += 1
+            except Exception as exc:  # noqa: BLE001 - Recherche darf Auftragsanalyse nicht verhindern
+                state.stats["enrichment_errors"] += 1
+                state.warnings.append(
+                    f"Recherche für {candidate.source}/{candidate.source_id} nicht verfügbar: {type(exc).__name__}"
+                )
         try:
-            result = self._analyzer.analyze(candidate)
+            result = self._analyzer.analyze(analysis_candidate)
         except Exception as exc:  # noqa: BLE001 - Kandidat darf nicht verloren gehen
             reason = exc.reason if isinstance(exc, AnalysisFailedError) else type(exc).__name__
             failures += 1
