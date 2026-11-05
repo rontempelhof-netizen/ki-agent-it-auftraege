@@ -10,6 +10,8 @@ import pytest
 from src.app import build_pipeline
 from src.config import EnrichmentSettings
 from src.domain.enums import ProcessingStatus
+from src.domain.models import Lead
+from src.main import main
 from src.llm import FakeLLMProvider
 from src.pipeline.enrichment import BraveContextEnricher, EnrichmentMatch, _match_strength
 from src.storage.database import session_scope
@@ -165,3 +167,29 @@ def test_search_budget_is_independent_and_limits_requests(tmp_path):
     assert summary.stats["enrichment_queries"] == 1
     assert stub.calls == 1
     assert provider.calls == 3
+
+
+
+def test_enrich_preview_works_on_existing_lead_without_ai_or_db_writes(tmp_path, monkeypatch, capsys):
+    env = make_env(tmp_path, max_llm_analyses_per_run=0)
+    with session_scope(env.factory) as session:
+        saved = LeadRepository(session).add(Lead.pending(_candidate()))
+    monkeypatch.setenv("AGENT_DATABASE__URL", env.settings.database.url)
+    monkeypatch.setenv("BRAVE_API_KEY", "secret-for-test")
+
+    def urlopen(_request, timeout):
+        return Response({"grounding": {"generic": [{
+            "url": "https://nemensis.example/auftrag-1300147",
+            "title": "Python Developer Datenmigration Oracle",
+            "snippets": ["Projekt mit PyCharm, Python und SQL/Oracle, GitLab " * 4],
+        }]}})
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+
+    assert main(["enrich-preview", "--id", str(saved.id)]) == 0
+    output = capsys.readouterr().out
+    assert "nemensis.example" in output
+    assert "kein Claude" in output
+    assert "secret-for-test" not in output
+    with session_scope(env.factory) as session:
+        assert LeadRepository(session).get(saved.id) == saved
+    assert main(["enrich-preview", "--id", "9999"]) == 2
