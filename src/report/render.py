@@ -54,6 +54,21 @@ def render_text(report: DailyReport) -> str:
     ]
     for problem in report.errors + report.warnings:
         lines.append(f"! {problem}")
+    if report.review_leads:
+        lines += [
+            "",
+            f"Fachlich interessant – Angaben klären ({len(report.review_leads)}):",
+            "Diese Leads bleiben REJECT; bitte erst fachlich/wirtschaftlich prüfen.",
+        ]
+        for lead in report.review_leads:
+            lines += [
+                "",
+                f"[KLÄRFALL · REJECT {lead.score}] {lead.title} (Lead #{lead.id})",
+                f"  Quelle: {lead.source}",
+                f"  Passung: {lead.fit_reason or 'fachlicher Fit laut Analyse hoch'}",
+                *[f"  Prüfen: {reason}" for reason in lead.reasons],
+                f"  Link: {lead.url or '–'}",
+            ]
     for lead in report.leads:
         lines += [
             "",
