@@ -45,6 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pending.add_argument("--search", metavar="TEXT", help="Suchtext in Titel oder Beschreibung")
     pending.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal 100 Einträge (Standard: 20)")
 
+    review = subparsers.add_parser("review-leads", help="Fachlich interessante Rejects mit Datenlücken prüfen (nur lesen)")
+    review.add_argument("--id", type=int, metavar="ID", help="Nur diese Lead-ID prüfen")
+    review.add_argument("--limit", type=int, default=20, metavar="N", help="Maximal 100 Treffer (Standard: 20)")
+
     selected = subparsers.add_parser("analyze-lead", help="Nur einen gewählten Pending-Lead analysieren (kein Gmail-Abruf)")
     selected.add_argument("--id", type=int, required=True, metavar="ID", help="Lead-ID aus pending-leads")
     selected.add_argument("--fake-llm", action="store_true", help="Simulation statt kostenpflichtigem API-Aufruf")
@@ -195,6 +199,56 @@ def _cmd_pending_leads(settings: Settings, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_review_leads(settings: Settings, args: argparse.Namespace) -> int:
+    """Berechnet die zweite Sichtung aus gespeicherten Analysen, ohne Daten zu ändern."""
+    from src.scoring.review_triage import review_advice
+    from src.storage.repository import LeadRepository
+
+    if not 1 <= args.limit <= 100:
+        print("Fehler: --limit muss zwischen 1 und 100 liegen.", file=sys.stderr)
+        return EXIT_ERROR
+    if args.id is not None and args.id < 1:
+        print("Fehler: --id muss positiv sein.", file=sys.stderr)
+        return EXIT_ERROR
+
+    engine, factory = _prepare_db(settings)
+    try:
+        with factory() as session:
+            repo = LeadRepository(session)
+            if args.id is not None:
+                lead = repo.get(args.id)
+                if lead is None:
+                    print(f"Fehler: Lead #{args.id} nicht gefunden.", file=sys.stderr)
+                    return EXIT_ERROR
+                candidates = [lead]
+            else:
+                candidates = repo.list_leads()
+        matches = [
+            (lead, advice)
+            for lead in candidates
+            if (advice := review_advice(lead)) is not None
+        ]
+    finally:
+        engine.dispose()
+
+    if not matches:
+        print("Keine fachlich interessanten Rejects mit mindestens zwei Informationslücken gefunden.")
+        print("Keine Daten geändert oder API-Anfragen ausgeführt.")
+        return EXIT_OK
+    print(f"{len(matches)} Klärfall/Klärfälle gefunden; zeige maximal {args.limit}.")
+    for lead, advice in matches[:args.limit]:
+        print(f"Lead #{lead.id} | {lead.lead_class.value} {lead.score_total}/100 "
+              f"| {lead.source} | {_one_line(lead.title, 150)}")
+        if lead.fit_reason:
+            print(f"  Passung: {_one_line(lead.fit_reason, 350)}")
+        for reason in advice.reasons:
+            print(f"  Prüfen: {reason}")
+        if lead.source_url:
+            print(f"  Link: {_one_line(lead.source_url, 300)}")
+    print("Nur Lesemodus; keine Neubewertung, keine Gmail- oder Claude-Anfrage.")
+    return EXIT_OK
+
+
 def _cmd_analyze_lead(settings: Settings, args: argparse.Namespace) -> int:
     from src.app import build_pipeline
     from src.domain.enums import ProcessingStatus
@@ -318,6 +372,7 @@ COMMANDS = {
     "gmail-check": _cmd_gmail_check,
     "duplicate-check": _cmd_duplicate_check,
     "pending-leads": _cmd_pending_leads,
+    "review-leads": _cmd_review_leads,
     "analyze-lead": _cmd_analyze_lead,
     "crawl": _cmd_crawl,
     "report": _cmd_report,
