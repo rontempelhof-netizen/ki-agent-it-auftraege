@@ -307,6 +307,10 @@ def _cmd_enrich_preview(settings: Settings, args: argparse.Namespace) -> int:
         print(f"Quelle: {_one_line(match.url, 500)}")
         print(f"Titel: {_one_line(match.title, 250)}")
         print(f"Zuordnung: {match.evidence}")
+        if match.mirror_urls:
+            print(f"Weitere gleichlautende Fundstellen ({len(match.mirror_urls)}; keine unabhängigen Belege):")
+            for url in match.mirror_urls:
+                print(f"  {_one_line(url, 500)}")
         print("Rechercheauszug:")
         print(_one_line(match.text, 1800))
     print("Ein Brave-API-Aufruf (ggf. kostenpflichtig); kein Claude, kein Gmail, keine Speicherung.")

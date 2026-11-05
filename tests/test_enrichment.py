@@ -99,9 +99,11 @@ def test_ambiguous_titles_and_unrelated_results_are_rejected(monkeypatch):
     def urlopen(_request, timeout):
         return Response({
             "grounding": {"generic": [
-                {"title": candidate.title, "url": "https://one.example/project",
+                {"title": candidate.title + " Projekt Bundesland Nord",
+                 "url": "https://one.example/project",
                  "snippets": ["Projekt mit Python, Oracle, Gitlab und Datenmigration " * 3]},
-                {"title": candidate.title, "url": "https://two.example/project",
+                {"title": candidate.title + " Projekt Bundesland Süd",
+                 "url": "https://two.example/project",
                  "snippets": ["Projekt mit Python, Oracle, Gitlab und Datenmigration " * 3]},
             ]}
         })
@@ -270,4 +272,159 @@ def test_cli_diagnose_lists_brave_rejection_reasons_without_extra_requests(tmp_p
     assert "Suchanfrage:" in out
     assert "Prüfung:" in out
     assert "redacted-key" not in out
+    assert len(calls) == 1
+
+
+
+def test_two_syndicated_versions_from_real_lead_162_are_one_match(monkeypatch):
+    """Reproduces user's actual diagnostics: two 100%-overlap titles, 11 Brave hits."""
+    monkeypatch.setenv("BRAVE_API_KEY", "offline-test")
+    candidate = make_candidate(
+        source="freelance.de",
+        source_id="1300147",
+        source_url=(
+            "https://www.freelance.de/projekte/projekt-1300147-100-Remote-Python-Developer"
+        ),
+        title=(
+            "100% Remote: Python Developer (m/w/d) Datenmigration, "
+            "PyCharm, SQL/Oracle, Git & GitLab"
+        ),
+        description="Ab Dezember 2026 Python-Entwickler, remote.",
+    )
+    primary_url = (
+        "https://www.freelancermap.de/projekt/100-prozent-remote-python-developer-"
+        "m-w-d-datenmigration-pycharm-sql-oracle-git-und-gitlab"
+    )
+    mirror_url = (
+        "https://nexus.webconia.de/projekte/100-remote-python-developer-"
+        "mwd-datenmigration-pycharm-sqloracle-git-gitlab"
+    )
+    results = [
+        {
+            "title": candidate.title + " auf www.freelancermap.de",
+            "url": primary_url,
+            "snippets": [
+                "Python Datenmigration, PyCharm, SQL und Oracle; Git/GitLab. " * 3,
+                "Projektlaufzeit unbekannt, Tagessatz unbekannt.",
+            ],
+        },
+        {
+            "title": candidate.title,
+            "url": mirror_url,
+            "snippets": ["Python Datenmigration, GitLab, Oracle und PyCharm, 100% Remote. " * 3],
+        },
+        {
+            "title": "Freelancer Projekte in Hamburg finden",
+            "url": "https://freelancermap.de/projekte/hamburg",
+            "snippets": ["Python Datenmigration GitLab Oracle PyCharm. " * 4],
+        },
+        {
+            "title": "Software Developer JAST-Stack",
+            "url": "https://nexus.webconia.de/andere-stelle",
+            "snippets": ["Python Datenmigration GitLab Oracle PyCharm. " * 4],
+        },
+        {
+            "title": "Python-Programmierung: Git mit Pycharm unter Windows nutzen",
+            "url": "https://heise.de/ratgeber/python-git-pycharm",
+            "snippets": ["Git PyCharm Python Ratgeber, Oracle wird nicht behandelt. " * 4],
+        },
+        {
+            "title": "Spezialist: BI Experte, Qlikview, Tableau",
+            "url": "https://www.gulp.de/freelancer/ABCD",
+            "snippets": ["Python Datenmigration GitLab Oracle PyCharm. " * 4],
+        },
+    ] + [{
+        "title": f"Sonstiges Projekt {i}",
+        "url": f"https://example.org/other-{i}",
+        "snippets": ["Eine andere Ausschreibung oder nur ein generischer Projekttreffer. " * 4],
+    } for i in range(5)]
+    calls = []
+
+    def urlopen(request, timeout):
+        calls.append(request)
+        return Response({"grounding": {"generic": results}})
+
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+    enricher = BraveContextEnricher(EnrichmentSettings(enabled=True))
+    match = enricher.enrich(candidate)
+    assert match is not None
+    assert match.url == primary_url  # selected monitored project portal, not arbitrary first/last site
+    assert match.mirror_urls == (mirror_url,)
+    assert "nur eine Quelle verwendet" in match.evidence
+    assert "Projektlaufzeit unbekannt" in match.text
+    assert "100% Remote." not in match.text  # snippets from different sites are not combined
+    assert enricher.last_diagnostics is not None
+    assert enricher.last_diagnostics.outcome == "wahrscheinliche Mehrfachveröffentlichung"
+    assert enricher.last_diagnostics.total_results == 11
+    assert enricher.last_diagnostics.checked_results == 6
+    assert len(calls) == 1
+
+
+def test_conflicting_rates_prevent_mirror_selection(monkeypatch):
+    monkeypatch.setenv("BRAVE_API_KEY", "offline-test")
+    candidate = _candidate()
+    candidate = candidate.model_copy(update={"source_url": "https://www.freelance.de/projekte/projekt-1300147"})
+    calls = []
+    def urlopen(request, timeout):
+        calls.append(request)
+        return Response({"grounding": {"generic": [
+            {
+                "title": candidate.title,
+                "url": "https://www.freelancermap.de/projekt/python-remote",
+                "snippets": ["Gesucht werden Python, Oracle, GitLab. Stundensatz 75 €/h. " * 4],
+            },
+            {
+                "title": candidate.title,
+                "url": "https://nexus.webconia.de/projekte/python-remote",
+                "snippets": ["Gesucht werden Python, Oracle, GitLab. Stundensatz 95 €/h. " * 4],
+            },
+        ]}})
+
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+    enricher = BraveContextEnricher(EnrichmentSettings(enabled=True))
+    assert enricher.enrich(candidate) is None
+    assert enricher.last_diagnostics.outcome == "mehrdeutige Zuordnung"
+    assert len(calls) == 1
+
+
+def test_short_generic_titles_cannot_be_mirrored():
+    from src.pipeline.enrichment import _mirror_title
+    generic = make_candidate(
+        title="Senior Python Backend Developer",
+        source_id="1234567",
+    )
+    assert not _mirror_title(generic, "Senior Python Backend Developer")
+    distinctive = _candidate()
+    assert _mirror_title(distinctive, "Python Developer Datenmigration PyCharm Oracle GitLab")
+    assert not _mirror_title(distinctive, "Python Developer Datenmigration PyCharm Oracle GitLab anderer Kunde")
+
+
+def test_preview_displays_duplicate_sources_without_second_search(tmp_path, monkeypatch, capsys):
+    env = make_env(tmp_path, max_llm_analyses_per_run=0)
+    candidate = _candidate()
+    with session_scope(env.factory) as session:
+        saved = LeadRepository(session).add(Lead.pending(candidate))
+    monkeypatch.setenv("AGENT_DATABASE__URL", env.settings.database.url)
+    monkeypatch.setenv("BRAVE_API_KEY", "offline-test")
+    calls = []
+    def urlopen(request, timeout):
+        calls.append(request)
+        return Response({"grounding": {"generic": [
+            {
+                "title": candidate.title,
+                "url": "https://www.freelancermap.de/projekt/python-remote",
+                "snippets": ["Gesucht werden Python, Oracle, PyCharm, GitLab. " * 4],
+            },
+            {
+                "title": candidate.title,
+                "url": "https://nexus.webconia.de/projekte/python-remote",
+                "snippets": ["Gesucht werden Python, Oracle, PyCharm, GitLab. " * 4],
+            },
+        ]}})
+    monkeypatch.setattr("src.pipeline.enrichment.urlopen", urlopen)
+    assert main(["enrich-preview", "--id", str(saved.id), "--diagnose"]) == 0
+    stdout = capsys.readouterr().out
+    assert "wahrscheinliche Mehrfachveröffentlichung" in stdout
+    assert "Weitere gleichlautende Fundstellen" in stdout
+    assert "nexus.webconia.de" in stdout
     assert len(calls) == 1
