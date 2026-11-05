@@ -130,6 +130,22 @@ llm:
     Bevorzugt: kleine, klar abgegrenzte Aufträge (ca. 1–20 Personentage), direkte Auftraggeber, remote.
   fake_responses_file: null    # nur provider=fake: JSON mit skriptgesteuerten Antworten (Demo)
 
+# Automatische Quellenanreicherung per Brave LLM Context API.
+# Standardmäßig AUS: eigener API-Vertrag und BRAVE_API_KEY notwendig;
+# die Suche kann Kosten verursachen, liest aber keine Projektseiten direkt.
+# Extrahierte Suchtext-Ausschnitte werden nur flüchtig für die aktuelle
+# Analyse genutzt; die gespeicherte E-Mail-Beschreibung bleibt unverändert.
+enrichment:
+  enabled: false
+  max_requests_per_run: 2
+  max_original_chars: 900
+  search_token_budget: 2500
+  max_results: 6
+  min_snippet_chars: 100
+  max_enriched_chars: 4500
+  max_response_bytes: 500000
+  timeout_seconds: 15
+
 # Pipeline-Orchestrierung
 pipeline:
   max_llm_analyses_per_run: 20   # weitere Kandidaten bleiben als "pending_analysis" gespeichert
