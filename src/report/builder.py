@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from src.config import ReportSettings
 from src.domain.enums import BudgetType, LeadCategory, LeadClass, RemoteStatus
 from src.domain.models import CrawlRun, Lead
+from src.scoring.review_triage import review_advice
 
 CATEGORY_LABELS: dict[LeadCategory, str] = {
     LeadCategory.DEVELOPMENT: "Softwareentwicklung",
@@ -59,6 +60,18 @@ class ReportLead(BaseModel):
     """Nur http(s)-Links; andere Schemata werden verworfen."""
 
 
+class ReportReviewLead(BaseModel):
+    """Fachlich interessante Reject-Leads, deren Wirtschaftlichkeit noch zu klären ist."""
+
+    id: int | None
+    score: int
+    title: str
+    source: str
+    fit_reason: str | None
+    reasons: list[str]
+    url: str | None
+
+
 class DailyReport(BaseModel):
     title: str
     run_id: int
@@ -73,6 +86,7 @@ class DailyReport(BaseModel):
     errors: list[str]
     llm_cost_usd: float | None
     timezone: str = "Europe/Berlin"
+    review_leads: list[ReportReviewLead] = []
 
     @property
     def subject(self) -> str:
@@ -155,6 +169,14 @@ def build_report(run: CrawlRun, leads: list[Lead], settings: ReportSettings, gen
 
     detailed = [lead for lead in leads if lead.lead_class in settings.detail_classes]
     detailed.sort(key=lambda lead: (_CLASS_ORDER[lead.lead_class], -lead.score_total, lead.id or 0))  # type: ignore[index]
+    # Separat sichtbare Klärfälle bleiben REJECT und zählen NICHT als A/B-Leads.
+    review = [
+        (lead, advice)
+        for lead in leads
+        if lead.lead_class not in settings.detail_classes
+        if (advice := review_advice(lead)) is not None
+    ]
+    review.sort(key=lambda item: (-item[0].score_total, item[0].id or 0))
     micro = run.stats.get("llm_cost_microusd")
     return DailyReport(
         title=settings.title,
@@ -166,6 +188,18 @@ def build_report(run: CrawlRun, leads: list[Lead], settings: ReportSettings, gen
         stats=run.stats,
         class_counts=counts,
         leads=[to_report_lead(lead) for lead in detailed],
+        review_leads=[
+            ReportReviewLead(
+                id=lead.id,
+                score=lead.score_total,
+                title=lead.title,
+                source=lead.source,
+                fit_reason=lead.fit_reason,
+                reasons=list(advice.reasons),
+                url=safe_url(lead.source_url),
+            )
+            for lead, advice in review
+        ],
         warnings=run.warnings,
         errors=run.error_message.split("\n") if run.error_message else [],
         llm_cost_usd=micro / 1_000_000 if micro else None,

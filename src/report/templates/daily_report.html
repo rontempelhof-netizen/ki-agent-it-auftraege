@@ -61,7 +61,7 @@
     <span class="badge badge-REJECT">Reject {{ report.class_counts.REJECT }}</span>
   </p>
   {% if report.class_counts.C or report.class_counts.REJECT %}
-  <p class="muted">C- und Reject-Leads sind gespeichert, werden aber nicht einzeln dargestellt.</p>
+  <p class="muted">C- und Reject-Leads sind gespeichert; fachlich interessante Rejects mit Informationslücken werden unten gesondert aufgeführt.</p>
   {% endif %}
 </div>
 
@@ -71,6 +71,24 @@
   {% if report.errors %}<ul>{% for e in report.errors %}<li class="err">{{ e }}</li>{% endfor %}</ul>{% endif %}
   {% if report.warnings %}<ul>{% for w in report.warnings %}<li class="warn">{{ w }}</li>{% endfor %}</ul>{% endif %}
 </div>
+{% endif %}
+
+{% if report.review_leads %}
+<div class="card">
+  <h2>Fachlich interessant – Angaben klären ({{ report.review_leads | length }})</h2>
+  <p class="muted">Diese Projekte bleiben in der Score-Klasse REJECT. Sie werden wegen eines starken fachlichen Fits und offener wirtschaftlicher Angaben zur manuellen Prüfung vorgeschlagen. Keine automatische Freigabe oder Kontaktaufnahme.</p>
+</div>
+{% for lead in report.review_leads %}
+<div class="card review-lead" id="review-lead-{{ lead.id }}">
+  <div><span class="badge badge-REJECT">REJECT</span><span class="score">{{ lead.score }} / 100 · Klärfall</span></div>
+  <h2 style="margin-top:8px">{% if lead.url %}<a href="{{ lead.url }}">{{ lead.title }}</a>{% else %}{{ lead.title }}{% endif %}</h2>
+  <p class="muted">{{ lead.source }} · Lead #{{ lead.id }}</p>
+  <p>{{ lead.fit_reason or "Fachliche Passung wurde vom Analysemodell als hoch bewertet." }}</p>
+  <h3>Vor einer Entscheidung klären</h3>
+  <ul>{% for reason in lead.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+  <p class="muted" style="margin-top:10px">Bitte Originalausschreibung prüfen; keine automatischen Zusagen.</p>
+</div>
+{% endfor %}
 {% endif %}
 
 {% if not report.leads %}
